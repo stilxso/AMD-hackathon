@@ -3,6 +3,7 @@ export type AnalyzeResponse = {
   status_text: string;
   ai_confidence: number;
   dominant_pollutant: string;
+  estimated_pm25?: number;
 };
 
 export type Coords = { latitude: number; longitude: number };

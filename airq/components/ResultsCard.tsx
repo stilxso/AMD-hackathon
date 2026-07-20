@@ -79,7 +79,16 @@ export function ResultsCard({ result, imageUrl, coords, onReset }: Props) {
             <Activity className="w-3.5 h-3.5" /> {t.pollutant}
           </div>
           <div className="mt-2 text-2xl text-white font-semibold">{result.dominant_pollutant}</div>
-          <div className="mt-2 text-[11px] text-emerald-100/50">Detected via AI vision model</div>
+          <div className="mt-2 text-[11px] text-emerald-100/50">
+            {result.estimated_pm25 ? (
+              <>
+                ~{(result.estimated_pm25 / 22.0).toFixed(1)} cigarettes / day <br />
+                <span className="opacity-70">({result.estimated_pm25} µg/m³)</span>
+              </>
+            ) : (
+              "Detected via AI vision model"
+            )}
+          </div>
         </div>
         <div className="glass p-4 col-span-2">
           <div className="text-emerald-100/60 text-xs uppercase tracking-widest flex items-center gap-1.5">

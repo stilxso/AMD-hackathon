@@ -55,12 +55,12 @@ async def analyze_image(
         # Construct response matching frontend contract
         from app.services.fusion import _pm25_to_aqi
         response = {
-            "aqiScore": fusion.aqi_score,
-            "statusText": fusion.status_text,
-            "dominantPollutant": fusion.dominant_pollutant,
-            "aiConfidence": int(fusion.ai_confidence * 100),
-            "estimatedPm25": fusion.pm25,
-            "nearbyStations": [
+            "aqi_score": fusion.aqi_score,
+            "status_text": fusion.status_text,
+            "dominant_pollutant": fusion.dominant_pollutant,
+            "ai_confidence": fusion.ai_confidence,
+            "estimated_pm25": fusion.pm25,
+            "nearby_stations": [
                 {
                     "name": s.name,
                     "distanceKm": round(s.distance_km, 1),
