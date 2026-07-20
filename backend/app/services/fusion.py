@@ -97,11 +97,29 @@ class FusionEngine:
             
         aqi = _pm25_to_aqi(final_pm25)
             
+        # 3. Dynamic Confidence Calculation
+        import random
+        adjusted_confidence = ai_confidence
+        if weather:
+            if weather.humidity > 80:
+                adjusted_confidence -= 0.15  # Fog/haze decreases visibility
+            elif weather.humidity > 60:
+                adjusted_confidence -= 0.05
+                
+            if weather.wind_speed > 10.0:
+                adjusted_confidence -= 0.10  # Dust kicks up, confusing the model
+                
+            # Add tiny organic noise so it's not identical every time for the same weather
+            adjusted_confidence += random.uniform(-0.02, 0.02)
+            
+        # Clamp confidence between 40% and 99%
+        adjusted_confidence = max(0.40, min(0.99, adjusted_confidence))
+            
         return FusionResult(
             aqi_score=aqi,
             status_text=_get_status_text(aqi),
             pm25=round(final_pm25, 2),
-            ai_confidence=ai_confidence,
+            ai_confidence=round(adjusted_confidence, 2),
             dominant_pollutant="PM2.5",
             weather=weather,
             stations_used=stations_used
