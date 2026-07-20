@@ -103,7 +103,7 @@ export default function Page() {
 
     setPhase("scanning");
     try {
-      const res = await fetch("/api/analyze", { method: "POST", body: form });
+      const res = await fetch("/api/v1/analyze", { method: "POST", body: form });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = (await res.json()) as AnalyzeResponse;
       setResult(data);

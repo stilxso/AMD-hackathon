@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
+from app.api.v1 import analyze
 
 logger = logging.getLogger("airq")
 
@@ -85,10 +86,8 @@ def create_app() -> FastAPI:
             "version": app.version,
         }
 
-    # ── Mount API router (Stage 5 will add the analyze route) ────────
-    # Placeholder: will be filled in Stage 5
-    # from app.api.routes import router as api_router
-    # app.include_router(api_router)
+    # ── Mount API router ─────────────────────────────────────────────
+    app.include_router(analyze.router, prefix="/api/v1")
 
     return app
 

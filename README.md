@@ -1,114 +1,68 @@
-#  AMD
+# AirQ - PM2.5 Pollution Estimator
 
-**Приложение, которое показывает воздух таким, какой он есть — а не таким, каким его видят официальные станции.**
+Welcome to **AirQ**, a full-stack platform that uses an image's environment (sky, landscape, air) along with your geolocation to estimate the PM2.5 pollution level and calculate your AQI score.
 
-*Проект для хакатона*
-
----
-
-## 📌 Проблема
-
-Казахстан входит в число самых загрязнённых стран мира по PM2.5:
-
-| Показатель | Значение |
-|---|---|
-| Среднее по стране | 23,4 мкг/м³ (×5 нормы ВОЗ) |
-| Караганда | 72,6 мкг/м³ (×14 нормы ВОЗ, 26-е место в мире) |
-| Вклад автотранспорта в Алматы | до 60% загрязнения воздуха |
-| Астана | годами в топе самых загрязнённых столиц мира, при этом не является промышленным городом |
-
-Но главная проблема — не в цифрах, а в их **отсутствии**:
-
-- Официальные посты мониторинга физически не покрывают все районы
-- Независимых датчиков нет во множестве населённых пунктов
-- Человек чувствует, что дышать тяжело у себя во дворе — но данных об этом нет, только усреднённые цифры по городу
-
-**Кто страдает:**
-- 🏙️ Жители промышленных и крупных городов (Алматы, Караганда, Атырау, Темиртау)
-- 🫁 Люди с хроническими респираторными заболеваниями
-- 🌱 Экоактивисты и локальные НКО
-- 📰 Независимые журналисты
-
-Всем им нужны точные локальные данные, а не усреднённая статистика.
+This project was built from scratch using a fine-tuned EfficientNet-B0 ML model and modern web technologies to give an easy-to-use yet powerful API.
 
 ---
 
-## 💡 Решение
+## Technical Overview
 
-**ECO-MONITORING закрывает этот пробел с помощью одной фотографии.**
+The architecture is built around Next.js (React) on the frontend and FastAPI (Python) on the backend. 
+When a user uploads a photo, the backend uses a custom Vision AI model, along with real-time station data from external providers, to fuse and predict the most accurate Air Quality Index possible.
 
-Пользователь фотографирует местность — приложение анализирует изображение и определяет качество воздуха, переводя его в понятную метрику:
+### The 5 Stages of the Project
 
-> ### 🚬 Эквивалент выкуренных сигарет
+The backend was developed in 5 smaller, manageable stages:
 
-Интуитивно понятный показатель, который сразу даёт представление о реальном уровне загрязнения — без необходимости разбираться в мкг/м³ и нормах ВОЗ.
+#### Stage 1: Backend Foundation
+- A robust FastAPI backend scaffolding was constructed inside `/backend`.
+- Configured environment variables (API keys, ports) using Pydantic Settings.
+- Added a health endpoint to monitor liveness.
+- Removed unnecessary large binaries (e.g., zip files) from Git to maintain a clean repo.
 
-### Оценка строится не только на фото:
+#### Stage 2: ML Inference Engine
+- Created the core AI prediction pipeline using `torch` and `torchvision`.
+- Evaluated the `fineweights.pt` weights and successfully mapped them to the `EfficientNet-B0` feature extractor.
+- Integrated a customized 3-layer linear regression head that outputs the raw PM2.5 estimate.
+- Implemented lazy loading in the FastAPI lifespan to prevent server crashes if the model fails.
 
-| Источник данных | Что даёт |
-|---|---|
-| 📷 Фотография местности | Визуальный анализ качества воздуха через нейросеть |
-| 🌡️ Данные с метеостанций | Температура, влажность, ветер, давление — влияют на рассеивание загрязняющих веществ |
-| 🗺️ Анализ ландшафта | Рельеф, застройка, зелёные зоны, близость к автодорогам и промышленным объектам — формируют локальные "карманы" загрязнённого воздуха |
+#### Stage 3: External API Integrations
+- Implemented asynchronous API clients using `httpx` to fetch real-world data quickly.
+- Built **WAQI** and **OpenAQ** integration to find real-time PM2.5 values of nearby stations.
+- Built **OpenWeatherMap** integration to pull local temperature, wind speed, and humidity in real-time.
 
-**Результат:** пользователь получает не абстрактную цифру от ближайшей официальной станции за много километров, а оценку воздуха именно там, где он находится.
+#### Stage 4: Fusion Engine
+- Created `FusionEngine`, an advanced statistical blender.
+- Modifies the AI's raw estimate based on weather (e.g., reducing the predicted PM2.5 on high-humidity days where the sky naturally looks hazy).
+- Implements **Inverse Distance Weighting (IDW)** to smoothly interpolate data between the AI prediction and nearby physical sensors based on their distance in kilometers.
+
+#### Stage 5: Final Endpoint & Frontend Polish
+- Developed the main `/api/v1/analyze` endpoint bringing the ML model, External APIs, and Fusion Engine together.
+- Rewrote `next.config.mjs` to proxy traffic smoothly to the backend without CORS issues.
+- Transitioned the Next.js frontend map component from Leaflet to a beautiful **Mapbox GL JS** implementation for a more premium look.
 
 ---
 
-## ⚙️ Техническая реализация
-
-### Frontend
-- **React**
-- **Tailwind CSS**
+## How to Run
 
 ### Backend
-- **FastAPI**
+1. Go into the backend directory: `cd backend`
+2. Create a virtual environment (optional but recommended): `python -m venv venv && source venv/bin/activate`
+3. Install dependencies: `pip install -r requirements.txt`
+4. Start the FastAPI server: `uvicorn app.main:app --host 0.0.0.1 --port 8000 --reload`
+*Note: Make sure `.env` is populated with the correct API keys for OpenWeather, Mapbox, and WAQI.*
 
-### Machine Learning
-Ядро анализа — дообученная нейросеть **EfficientNet-B0** (Google):
-
-```
-1. Берём предобученную EfficientNet-B0 (обучена на ImageNet, 1000 классов)
-2. Отрезаем финальный классификационный слой
-3. Заменяем его на заглушку — nn.Identity()
-4. Сеть теперь работает как "умный глаз":
-   принимает фото → выдаёт эмбеддинг из 1280 чисел,
-   компактно описывающий всё, что происходит на изображении
-```
-
-Полученный эмбеддинг используется для оценки качества воздуха на фото в сочетании с метеоданными и анализом ландшафта.
-
-📓 **Ноутбуки**, использованные для дообучения модели, опубликованы в репозитории проекта — см. `README.md`.
+### Frontend
+1. Go into the frontend directory: `cd airq`
+2. Install dependencies: `npm install`
+3. Run the development server: `npm run dev`
+4. Open `http://localhost:3000` in your browser.
 
 ---
 
-## 🚀 Куда мы движемся
-
-Следующий шаг развития — **построение маршрутов с наименьшим загрязнением воздуха** для тех, кому это критически важно:
-
-- 🏃 Бегунов
-- 👶 Мам с колясками
-- 🫁 Людей с астмой и другими респираторными заболеваниями
-
-Приложение будет предлагать не просто "кратчайший путь", а путь, который **минимизирует контакт с загрязнённым воздухом** — превращая экологические данные в конкретное, действенное решение для повседневной жизни.
-
----
-
-## 🗺️ Roadmap
-
-| Этап | Задача | Статус |
-|---|---|--|
-| 1 | 📊 Найти датасет или создать собственный (фото местности + метки качества воздуха) | ✔️ |
-| 2 | 🎨 Написать фронтенд (React + Tailwind CSS) | ⬜ |
-| 3 | 🧠 Обучить модель (дообучение EfficientNet-B0 под задачу) | ⬜ |
-| 4 | ⚡ Добавить инференс (интеграция модели в FastAPI-бэкенд, выдача результата пользователю) | ⬜ |
-
----
-dataset - https://www.kaggle.com/datasets/deadcardassian/pm25vision/
-
-<div align="center">
-
-**DEMALU**
-*Воздух, каким он есть — а не каким его видят издалека*
-
-</div>
+## Technologies Used
+* **Frontend:** Next.js, React, TailwindCSS, Mapbox GL JS
+* **Backend:** FastAPI, Python, Pydantic, HTTPX
+* **Machine Learning:** PyTorch, Torchvision (EfficientNet-B0)
+* **External APIs:** WAQI (World Air Quality Index), OpenAQ, OpenWeatherMap, Mapbox
