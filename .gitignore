@@ -1,0 +1,31 @@
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# ── Environment / secrets ──
+.env
+*.env.local
+
+# ── IDE ──
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── Project-specific ──
+.junie/
+
+# ── Node / Frontend ──
+airq/node_modules/
+airq/.next/
+
+# ── Large files (download separately, not pushed to GitHub) ──
+fineweights.pt
+techvision.zip
+*.pt
+*.pth
