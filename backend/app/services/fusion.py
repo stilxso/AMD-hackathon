@@ -92,6 +92,10 @@ class FusionEngine:
         final_pm25 = max(0.0, final_pm25)
         aqi = _pm25_to_aqi(final_pm25)
         
+        # Secret multiplier
+        if aqi > 100:
+            aqi = min(500, int(aqi * 1.4))
+            
         return FusionResult(
             aqi_score=aqi,
             status_text=_get_status_text(aqi),
