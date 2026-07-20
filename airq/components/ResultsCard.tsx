@@ -85,14 +85,14 @@ export function ResultsCard({ result, imageUrl, coords, onReset }: Props) {
                 <div className="flex justify-between items-center bg-black/20 px-2 py-1.5 rounded">
                   <span>Fused (Final)</span>
                   <span className="font-medium text-emerald-300">
-                    ~{(result.estimated_pm25 / 22.0).toFixed(1)} 🚬 / day
+                    ~{result.aqi_score < 100 ? "0" : (result.estimated_pm25 / 22.0).toFixed(1)} 🚬 / day
                   </span>
                 </div>
                 {result.raw_ai_pm25 !== undefined && (
                   <div className="flex justify-between items-center bg-black/20 px-2 py-1.5 rounded opacity-75">
                     <span>AI Vision Only</span>
                     <span className="font-medium text-emerald-100">
-                      ~{(result.raw_ai_pm25 / 22.0).toFixed(1)} 🚬 / day
+                      ~{result.aqi_score < 100 ? "0" : (result.raw_ai_pm25 / 22.0).toFixed(1)} 🚬 / day
                     </span>
                   </div>
                 )}
