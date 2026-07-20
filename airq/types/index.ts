@@ -4,6 +4,7 @@ export type AnalyzeResponse = {
   ai_confidence: number;
   dominant_pollutant: string;
   estimated_pm25?: number;
+  raw_ai_pm25?: number;
 };
 
 export type Coords = { latitude: number; longitude: number };

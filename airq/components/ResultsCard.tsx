@@ -79,11 +79,23 @@ export function ResultsCard({ result, imageUrl, coords, onReset }: Props) {
             <Activity className="w-3.5 h-3.5" /> {t.pollutant}
           </div>
           <div className="mt-2 text-2xl text-white font-semibold">{result.dominant_pollutant}</div>
-          <div className="mt-2 text-[11px] text-emerald-100/50">
+          <div className="mt-2 text-[11px] text-emerald-100/50 space-y-1.5">
             {result.estimated_pm25 ? (
               <>
-                ~{(result.estimated_pm25 / 22.0).toFixed(1)} cigarettes / day <br />
-                <span className="opacity-70">({result.estimated_pm25} µg/m³)</span>
+                <div className="flex justify-between items-center bg-black/20 px-2 py-1.5 rounded">
+                  <span>Fused (Final)</span>
+                  <span className="font-medium text-emerald-300">
+                    ~{(result.estimated_pm25 / 22.0).toFixed(1)} 🚬 / day
+                  </span>
+                </div>
+                {result.raw_ai_pm25 !== undefined && (
+                  <div className="flex justify-between items-center bg-black/20 px-2 py-1.5 rounded opacity-75">
+                    <span>AI Vision Only</span>
+                    <span className="font-medium text-emerald-100">
+                      ~{(result.raw_ai_pm25 / 22.0).toFixed(1)} 🚬 / day
+                    </span>
+                  </div>
+                )}
               </>
             ) : (
               "Detected via AI vision model"
