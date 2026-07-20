@@ -4,7 +4,7 @@ Rapid-prototype (vibecode) frontend for the **Tech Vision 2026** hackathon.
 Snap a photo of the sky → an AI backend (mocked here) returns local air-quality.
 
 Built to the spec provided: Next.js 14 App Router · Tailwind · framer-motion ·
-react-leaflet · lucide-react. Ships a mock `/api/analyze` route so the
+Mapbox GL · lucide-react. Ships a mock `/api/analyze` route so the
 frontend runs end-to-end without the Python backend.
 
 ---
@@ -14,11 +14,31 @@ frontend runs end-to-end without the Python backend.
 ```bash
 cd airq
 npm install
+
+# Add your Mapbox token so the live map renders:
+cp .env.local.example .env.local
+# then paste a free public token (pk.…) into NEXT_PUBLIC_MAPBOX_TOKEN
+
 npm run dev
 # open http://localhost:3000
 ```
 
-Requires Node 18.17+ (Next 14).
+Requires Node 18.17+ (Next 14). Get a free Mapbox public token at
+https://account.mapbox.com/access-tokens/ — without it the map area shows a
+"token required" card (the rest of the app still runs).
+
+## Live location + pollution map
+
+- On load the app requests **geolocation permission** and keeps a live
+  `watchPosition`, so the Mapbox map centers on you and a pulsing marker tracks
+  your position in real time.
+- The map renders a **pollution heatmap** (Mapbox GL heatmap layer) plus
+  individual **monitoring-station dots** that appear as you zoom in — both
+  colored green → yellow → orange → red by AQI, with a legend overlay.
+- The field intensifies to match your **measured AQI** once a scan completes,
+  so the verdict and the map agree.
+- Deny permission (or on desktop with no GPS) and the manual city dropdown
+  takes over — the map still loads, centered on the chosen city.
 
 ## Live-demo safety nets
 
@@ -28,9 +48,11 @@ Requires Node 18.17+ (Next 14).
 - **Geolocation fallback** — if the browser denies location or times out,
   a manual dropdown appears (Astana Left Bank / Almaty Center /
   Karaganda Zone 1). App never crashes.
-- **SSR-safe map** — `MapView` is isolated in a dedicated file and imported
-  via `next/dynamic({ ssr: false })` with a styled skeleton, so
+- **SSR-safe map** — `MapView` (Mapbox GL) is isolated in a dedicated file and
+  imported via `next/dynamic({ ssr: false })` with a styled skeleton, so
   `window is not defined` cannot happen at build time.
+- **Network-free demo image** — the Demo Load haze photo is generated on the
+  client with canvas (no external fetch), so the demo works fully offline.
 
 ## API contract
 
@@ -64,7 +86,7 @@ the real FastAPI URL when the backend is ready. No other changes required.
 - Custom keyframes: `scan-line` (sweeping green beam over the uploaded image),
   `pulse-glow` (soft ring on interactive tiles), `grid-drift` (subtle
   cyber-grid ambience), `pulse-ring` (map pin).
-- Dark Carto tiles for the map, filtered towards green to match theme.
+- Mapbox `dark-v11` base style with a green-tinted pollution heatmap overlay.
 
 ## i18n
 
@@ -90,7 +112,7 @@ translated. Toggle sits in the top-right header.
 | Working MVP | End-to-end: capture → GPS/fallback → scanning animation → verdict + map. Everything runs on `npm run dev`. |
 | Innovation / vibe | Cyber-Ecology aesthetic, neon scan animation, live pulsing pin — presentation-grade in 3-4 s. |
 | Design & UX | Consistent glassmorphism system, colour-coded AQI, animated ambience, mobile-first "capture-first" layout, desktop dashboard split. |
-| Technical quality | TypeScript, Next 14 App Router, SSR-safe dynamic import for leaflet, strict typing on API contract, no heavy i18n dep. |
+| Technical quality | TypeScript, Next 14 App Router, SSR-safe dynamic import for Mapbox GL, strict typing on API contract, no heavy i18n dep, clean production build. |
 | Localization | EN / RU / KZ toggle wired through every visible string, persisted per browser. |
 | Demo readiness | `Demo Load` button + geolocation fallback so live demo cannot fail on stage. |
 | Backend contract | Handshake spec followed exactly; mock returns realistic AQI buckets. |
@@ -102,7 +124,7 @@ app/
   api/analyze/route.ts   # mock backend (3–4 s delay, realistic response)
   layout.tsx             # theme + i18n provider
   page.tsx               # single-page flow (capture / scan / verdict)
-  globals.css            # theme tokens + leaflet overrides + pin animation
+  globals.css            # theme tokens + map overrides + pin animation
 components/
   Header.tsx             # brand + language toggle
   LanguageToggle.tsx     # EN | RU | KZ
@@ -110,7 +132,7 @@ components/
   ScannerAnimation.tsx   # framer-motion scan-line over uploaded image
   ResultsCard.tsx        # AQI verdict, confidence, pollutant, coords
   LocationFallback.tsx   # manual city dropdown when GPS unavailable
-  MapView.tsx            # react-leaflet map (client-only)
+  MapView.tsx            # Mapbox GL map + pollution heatmap (client-only)
   MapSkeleton.tsx        # placeholder while map hydrates
 lib/
   i18n.tsx               # provider + dictionaries + AQI labels
