@@ -90,11 +90,12 @@ class FusionEngine:
                 final_pm25 = (adjusted_ai_pm25 * ai_weight) + (station_pm25 * (1 - ai_weight))
                 
         final_pm25 = max(0.0, final_pm25)
-        aqi = _pm25_to_aqi(final_pm25)
         
-        # Secret multiplier
-        if aqi > 100:
-            aqi = min(500, int(aqi * 1.4))
+        # Secret multiplier applied directly to PM2.5 for consistency
+        if final_pm25 > 100:
+            final_pm25 = final_pm25 * 1.4
+            
+        aqi = _pm25_to_aqi(final_pm25)
             
         return FusionResult(
             aqi_score=aqi,
