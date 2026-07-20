@@ -1,12 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  reactStrictMode: true,
-  images: {
-    remotePatterns: [
-      { protocol: "https", hostname: "images.unsplash.com" },
-      { protocol: "https", hostname: "**.tile.openstreetmap.org" },
-    ],
-  },
+  // Disabled so the geolocation watch effect isn't double-invoked in dev
+  // (StrictMode would trigger the browser permission prompt twice on mount).
+  reactStrictMode: false,
 };
 
 export default nextConfig;

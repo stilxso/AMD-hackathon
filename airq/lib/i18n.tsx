@@ -28,6 +28,12 @@ type Dict = {
   coordinates: string;
   yourLocation: string;
   mapTitle: string;
+  locationLive: string;
+  pollutionLayer: string;
+  low: string;
+  high: string;
+  mapTokenMissing: string;
+  mapTokenHint: string;
   aqiGood: string;
   aqiModerate: string;
   aqiUsg: string;
@@ -71,6 +77,12 @@ const dictionaries: Record<Lang, Dict> = {
     coordinates: "Coordinates",
     yourLocation: "You are here",
     mapTitle: "Live map",
+    locationLive: "Live location",
+    pollutionLayer: "Pollution density",
+    low: "Low",
+    high: "High",
+    mapTokenMissing: "Mapbox token required",
+    mapTokenHint: "Add a Mapbox public token to .env.local and restart the dev server to load the live map.",
     aqiGood: "Good",
     aqiModerate: "Moderate",
     aqiUsg: "Unhealthy for Sensitive Groups",
@@ -112,6 +124,12 @@ const dictionaries: Record<Lang, Dict> = {
     coordinates: "Координаты",
     yourLocation: "Вы здесь",
     mapTitle: "Живая карта",
+    locationLive: "Геолокация в реальном времени",
+    pollutionLayer: "Плотность загрязнения",
+    low: "Низкое",
+    high: "Высокое",
+    mapTokenMissing: "Требуется токен Mapbox",
+    mapTokenHint: "Добавьте публичный токен Mapbox в .env.local и перезапустите сервер, чтобы загрузить карту.",
     aqiGood: "Хорошо",
     aqiModerate: "Умеренно",
     aqiUsg: "Вредно для чувствительных групп",
@@ -153,6 +171,12 @@ const dictionaries: Record<Lang, Dict> = {
     coordinates: "Координаттар",
     yourLocation: "Сіз осындасыз",
     mapTitle: "Тірі карта",
+    locationLive: "Нақты уақыттағы орналасу",
+    pollutionLayer: "Ластану тығыздығы",
+    low: "Төмен",
+    high: "Жоғары",
+    mapTokenMissing: "Mapbox токені қажет",
+    mapTokenHint: ".env.local файлына Mapbox публикалық токенін қосып, серверді қайта іске қосыңыз.",
     aqiGood: "Жақсы",
     aqiModerate: "Орташа",
     aqiUsg: "Сезімтал топтарға зиянды",
