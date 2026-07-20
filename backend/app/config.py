@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     openweather_api_key: str = ""
 
     # ── ML model ─────────────────────────────────────────────────────
-    model_path: str = "../fineweights.pt"
+    model_path: str = "fineweights.pt"
     num_classes: int = 5
 
     # ── Server ───────────────────────────────────────────────────────
