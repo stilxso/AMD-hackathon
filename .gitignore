@@ -25,7 +25,4 @@ airq/node_modules/
 airq/.next/
 
 # ── Large files (download separately, not pushed to GitHub) ──
-fineweights.pt
 techvision.zip
-*.pt
-*.pth
