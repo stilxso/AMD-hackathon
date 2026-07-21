@@ -23,3 +23,4 @@ class FusionResult(BaseModel):
     dominant_pollutant: str
     weather: Optional[WeatherData] = None
     stations_used: int
+    fusion_method: str = "bayesian_exponential_v1"

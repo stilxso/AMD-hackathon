@@ -61,6 +61,7 @@ async def analyze_image(
             "ai_confidence": fusion.ai_confidence,
             "estimated_pm25": fusion.pm25,
             "raw_ai_pm25": round(ml_result.pm25_estimate, 1),
+            "fusion_method": fusion.fusion_method,
             "nearby_stations": [
                 {
                     "name": s.name,

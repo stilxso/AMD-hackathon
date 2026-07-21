@@ -32,17 +32,23 @@ class InferenceService:
             tensor = self.preprocessor.process_bytes(image_bytes)
             
             # Regression model outputs PM2.5 directly
-            pm25 = self.model.predict(tensor)
+            raw_pm25 = self.model.predict(tensor)
+            logger.debug("[MODEL_PREDICTION] raw_output=%.4f", raw_pm25)
+
             # The raw model might output unscaled or extremely high values if not normalized properly.
             # We scale it and clamp it to ensure it provides a reasonable PM2.5 range for the demo.
-            pm25 = max(0.0, min(float(pm25) / 5.0, 350.0))
-            
+            pm25 = max(0.0, min(float(raw_pm25) / 5.0, 350.0))
+            logger.debug("[MODEL_PREDICTION] scaled_pm25=%.2f (raw / 5.0, clamped to [0, 350])", pm25)
+
             class_idx, class_name = self._pm25_to_class(pm25)
-            
+            logger.debug("[MODEL_PREDICTION] epa_category=%s (idx=%d)", class_name, class_idx)
+
             # Since it's a regression model, 'confidence' doesn't apply directly.
             # We'll mock a high confidence for the UI, as the value is continuous.
             confidence = 0.92
-            
+            logger.debug("[MODEL_PREDICTION] confidence=%.2f | final pm25=%.2f | class=%s",
+                         confidence, pm25, class_name)
+
             return PredictionResult(
                 class_idx=class_idx,
                 class_name=class_name,
