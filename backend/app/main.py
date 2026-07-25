@@ -34,10 +34,15 @@ async def lifespan(app: FastAPI):
 
         service = InferenceService(
             model_path=settings.model_abs_path,
-            num_classes=settings.num_classes,
+            calibration_divisor=settings.pm25_calibration_divisor,
+            pm25_max=settings.pm25_max,
+            mc_samples=settings.mc_dropout_samples,
         )
         app.state.ml_service = service
-        logger.info("ML model loaded successfully (%s classes).", settings.num_classes)
+        logger.info(
+            "ML regression model loaded (MC-dropout samples=%d).",
+            settings.mc_dropout_samples,
+        )
     except Exception as exc:
         logger.warning("Could not load ML model – running without inference: %s", exc)
         app.state.ml_service = None
@@ -64,13 +69,11 @@ def create_app() -> FastAPI:
     )
 
     # ── CORS ─────────────────────────────────────────────────────────
+    # Origins come from CORS_ORIGINS so a deployed frontend can be allowed
+    # without a code change. Defaults cover the local Next.js dev server.
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost:3000",   # Next.js dev server
-            "http://127.0.0.1:3000",
-            "http://localhost:3001",
-        ],
+        allow_origins=settings.cors_origin_list,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

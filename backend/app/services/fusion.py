@@ -6,11 +6,15 @@ from .schemas import StationData, WeatherData, FusionResult
 logger = logging.getLogger("airq.services.fusion")
 
 # ─── Physical / Tuning Constants ─────────────────────────────────────────────
-# Weather correction (exponential decay)
+# Weather correction (exponential)
 _HUMIDITY_ONSET: float = 60.0        # % RH where correction begins
 _HUMIDITY_LAMBDA: float = 0.008      # decay rate per % above onset
-_WIND_LAMBDA: float = 0.015          # decay rate per m/s
-_STD_PRESSURE: float = 1013.25       # hPa, standard atmosphere
+_WIND_LAMBDA: float = 0.015          # rate per m/s away from the reference
+_WIND_REFERENCE: float = 3.0         # m/s – typical mixing conditions
+#
+# The pressure term (P / 1013.25) was removed: across real weather it spans
+# roughly 0.97–1.03, a ±3% nudge sitting beside humidity and wind terms worth
+# ±30%. It added a tunable parameter without contributing usable signal.
 
 # Station blending (sigmoid)
 _SIGMOID_K: float = 0.5              # steepness of the logistic curve
@@ -22,24 +26,35 @@ _IDW_MIN_DIST: float = 0.1           # km – prevents division by zero
 # Confidence model
 _CONF_HUMIDITY_BETA: float = 0.005   # confidence decay per excess %RH
 _CONF_WIND_BETA: float = 0.01        # confidence decay per m/s
-_CONF_STATION_GAMMA: float = 0.03    # corroboration bonus per station
+_CONF_STATION_GAMMA_MAX: float = 0.15  # max corroboration bonus (saturating)
+_CONF_STATION_SCALE: float = 3.0     # stations at which ~63% of bonus is earned
 _CONF_AGREEMENT_BONUS: float = 0.10  # max bonus when AI ≈ station estimate
 _CONF_AGREEMENT_THRESHOLD: float = 0.20  # relative error threshold for bonus
-_CONF_MIN: float = 0.40
-_CONF_MAX: float = 0.99
+# The floor must stay reachable. The previous 0.40 was dead code: with a
+# hard-coded 0.92 base it required ~166% RH or ~83 m/s wind to trigger.
+# Confidence now starts from measured model uncertainty, which genuinely
+# approaches zero on out-of-distribution input.
+_CONF_MIN: float = 0.05
+_CONF_MAX: float = 0.95
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-def _pm25_to_aqi(pm25: float) -> int:
-    """Calculate US EPA AQI from PM2.5 concentration."""
+def pm25_to_aqi(pm25: float) -> int:
+    """
+    Calculate US EPA AQI from PM2.5 concentration.
+
+    Uses the breakpoints from EPA's May 2024 PM2.5 NAAQS revision, which
+    lowered the Good ceiling from 12.0 to 9.0 µg/m³ and rescaled the upper
+    categories. The pre-2024 table reported 9.1–12.0 µg/m³ as "Good" when it
+    is now "Moderate".
+    """
     breakpoints = [
-        (0.0, 12.0, 0, 50),
-        (12.1, 35.4, 51, 100),
+        (0.0, 9.0, 0, 50),
+        (9.1, 35.4, 51, 100),
         (35.5, 55.4, 101, 150),
-        (55.5, 150.4, 151, 200),
-        (150.5, 250.4, 201, 300),
-        (250.5, 350.4, 301, 400),
-        (350.5, 500.4, 401, 500)
+        (55.5, 125.4, 151, 200),
+        (125.5, 225.4, 201, 300),
+        (225.5, 325.4, 301, 500),
     ]
 
     pm = round(pm25, 1)
@@ -47,7 +62,7 @@ def _pm25_to_aqi(pm25: float) -> int:
         if clow <= pm <= chigh:
             return int(round(((ihigh - ilow) / (chigh - clow)) * (pm - clow) + ilow))
 
-    if pm > 500.4: return 500
+    if pm > 325.4: return 500
     return 0
 
 def _get_status_text(aqi: int) -> str:
@@ -65,25 +80,27 @@ def _weather_correction(pm25: float, weather: Optional[WeatherData]) -> float:
     """
     Apply continuous exponential weather correction.
 
-    α_h = exp(-λ_h · max(0, H − H₀))     humidity: overcorrects hazy images
-    α_w = exp(-λ_w · W)                   wind: disperses particulates
-    α_p = P / P₀                           pressure: concentrates / disperses
+    α_h = exp(-λ_h · max(0, H − H₀))      humidity: haze inflates the estimate
+    α_w = exp(-λ_w · (W − W_ref))         wind: relative to typical mixing
+
+    The wind term is centred on a reference speed rather than on zero. Anchored
+    at zero it could only ever reduce the estimate, so stagnant air — precisely
+    when particulates accumulate — received no correction at all. Centred, calm
+    conditions raise the estimate slightly and strong winds lower it.
     """
     if weather is None:
         return pm25
 
     alpha_h = math.exp(-_HUMIDITY_LAMBDA * max(0.0, weather.humidity - _HUMIDITY_ONSET))
-    alpha_w = math.exp(-_WIND_LAMBDA * weather.wind_speed)
-    alpha_p = weather.pressure / _STD_PRESSURE
+    alpha_w = math.exp(-_WIND_LAMBDA * (weather.wind_speed - _WIND_REFERENCE))
 
-    corrected = pm25 * alpha_h * alpha_w * alpha_p
+    corrected = pm25 * alpha_h * alpha_w
 
     logger.debug(
         "[FUSION] weather_correction: α_h=%.4f (H=%.1f%%) | α_w=%.4f (W=%.1f m/s) | "
-        "α_p=%.4f (P=%.1f hPa) | pm25 %.2f → %.2f",
+        "pm25 %.2f → %.2f",
         alpha_h, weather.humidity,
         alpha_w, weather.wind_speed,
-        alpha_p, weather.pressure,
         pm25, corrected,
     )
     return corrected
@@ -121,9 +138,10 @@ def _sigmoid_ai_weight(nearest_distance_km: float) -> float:
 
     w_ai = 1 / (1 + exp(-k · (d − d₀)))
 
-    Close station (d→0)  ⇒  w_ai ≈ 0.08  (trust station)
-    Far station   (d→∞)  ⇒  w_ai ≈ 0.92  (trust AI)
-    Midpoint      (d=d₀) ⇒  w_ai = 0.50
+    Close station (d=0)   ⇒  w_ai ≈ 0.08  (trust station)
+    Midpoint      (d=d₀)  ⇒  w_ai = 0.50
+    d = 10 km             ⇒  w_ai ≈ 0.92  (trust AI)
+    Far station   (d→∞)   ⇒  w_ai → 1.00  (station contributes nothing)
     """
     w = 1.0 / (1.0 + math.exp(-_SIGMOID_K * (nearest_distance_km - _SIGMOID_D0)))
     logger.debug(
@@ -133,7 +151,7 @@ def _sigmoid_ai_weight(nearest_distance_km: float) -> float:
     return w
 
 
-def _bayesian_confidence(
+def _composite_confidence(
     base_confidence: float,
     weather: Optional[WeatherData],
     stations_used: int,
@@ -141,14 +159,22 @@ def _bayesian_confidence(
     station_pm25: Optional[float],
 ) -> float:
     """
-    Bayesian-inspired multi-factor confidence model.
+    Multi-factor confidence model.
 
-    C = C_base · exp(-β_h · ΔH) · exp(-β_w · W) · (1 + γ · S) · agreement_bonus
+    C = C_model · exp(-β_h · ΔH) · exp(-β_w · W) · β_stations · agreement_bonus
 
     Factors:
+      - C_model is the measured Monte-Carlo dropout confidence of the vision
+        model, penalised for out-of-distribution input. This is the term that
+        carries actual information about whether the *image* was readable.
       - Weather degradation (humidity, wind) reduces confidence continuously
-      - Station corroboration increases confidence with more data sources
+      - Station corroboration increases confidence, saturating so that a dense
+        station network cannot pin the output at the ceiling
       - AI-station agreement gives a bonus when estimates converge
+
+    Deliberately not called "Bayesian": there is no prior, likelihood or
+    posterior here. It is a bounded multiplicative heuristic, and naming it
+    accurately keeps that visible.
     """
     c = base_confidence
 
@@ -164,8 +190,14 @@ def _bayesian_confidence(
             humidity_factor, wind_factor,
         )
 
-    # ── Station corroboration ──
-    station_factor = 1.0 + _CONF_STATION_GAMMA * stations_used
+    # ── Station corroboration (saturating) ──
+    # Previously 1 + 0.03·S, unbounded: ten nearby stations produced a 1.30×
+    # multiplier that pushed almost every result to the clamp ceiling. The
+    # exponential form caps the total corroboration bonus at γ_max, so extra
+    # stations add sharply diminishing returns rather than saturating the score.
+    station_factor = 1.0 + _CONF_STATION_GAMMA_MAX * (
+        1.0 - math.exp(-stations_used / _CONF_STATION_SCALE)
+    )
     c *= station_factor
 
     # ── AI-station agreement bonus ──
@@ -234,10 +266,10 @@ class FusionEngine:
         final_pm25 = max(0.0, final_pm25)
 
         # ── Step 4: AQI mapping ──
-        aqi = _pm25_to_aqi(final_pm25)
+        aqi = pm25_to_aqi(final_pm25)
 
-        # ── Step 5: Bayesian confidence ──
-        adjusted_confidence = _bayesian_confidence(
+        # ── Step 5: Composite confidence ──
+        adjusted_confidence = _composite_confidence(
             base_confidence=ai_confidence,
             weather=weather,
             stations_used=stations_used,
@@ -258,5 +290,8 @@ class FusionEngine:
             dominant_pollutant="PM2.5",
             weather=weather,
             stations_used=stations_used,
-            fusion_method="bayesian_exponential_v1",
+            # Stations that actually contributed to the blend. Returned so the
+            # API cannot report a station the fusion excluded.
+            contributing_stations=valid_stations,
+            fusion_method="composite_exponential_v2",
         )

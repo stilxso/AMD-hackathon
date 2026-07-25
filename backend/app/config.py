@@ -26,12 +26,33 @@ class Settings(BaseSettings):
 
     # ── ML model ─────────────────────────────────────────────────────
     model_path: str = "fineweights.pt"
-    num_classes: int = 5
+
+    # Empirical divisor mapping the checkpoint's raw head output to µg/m³.
+    #
+    # WARNING: this is a calibration constant, not a derived conversion. The
+    # training script is not part of this repository, so the unit of the raw
+    # output is unverified — it may be µg/m³ at a different scale, AQI, or a
+    # normalised target. The value below was chosen because it places typical
+    # sky photographs in a plausible PM2.5 range. Everything downstream
+    # (weather correction, station blending) assumes the result is µg/m³.
+    # Re-derive this against labelled data before trusting absolute values.
+    pm25_calibration_divisor: float = 5.0
+    pm25_max: float = 350.0
+
+    # Monte-Carlo dropout passes used to estimate model uncertainty.
+    # Only the small regression head is re-run, so this is cheap.
+    mc_dropout_samples: int = 20
 
     # ── Server ───────────────────────────────────────────────────────
     host: str = "0.0.0.0"
     port: int = 8000
     log_level: str = "info"
+    max_upload_bytes: int = 10 * 1024 * 1024  # 10 MB
+
+    # Comma-separated browser origins allowed to call the API directly.
+    # The Next.js dev server proxies through a rewrite, so this only matters
+    # for direct cross-origin calls (e.g. a deployed frontend).
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001"
 
     # ── Derived helpers ──────────────────────────────────────────────
 
@@ -40,6 +61,11 @@ class Settings(BaseSettings):
         """Resolve model_path relative to the backend/ directory."""
         base = Path(__file__).resolve().parent.parent  # backend/
         return (base / self.model_path).resolve()
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        """Parse cors_origins into a list, ignoring blank entries."""
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
 
 # Singleton – import this everywhere

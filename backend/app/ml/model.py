@@ -47,15 +47,48 @@ class AirQualityModel(nn.Module):
         self.load_state_dict(new_state)
         logger.info("Model weights loaded successfully.")
 
+    def _features(self, tensor: torch.Tensor) -> torch.Tensor:
+        """Run the frozen backbone and return pooled feature vectors."""
+        x = self.backbone(tensor.to(self.device))
+        x = self.pool(x)
+        return torch.flatten(x, 1)
+
     @torch.no_grad()
     def predict(self, tensor: torch.Tensor) -> float:
         """
         Runs inference on a preprocessed image tensor.
-        Returns the estimated PM2.5 scalar value.
+        Returns the raw scalar output of the regression head.
         """
-        tensor = tensor.to(self.device)
-        x = self.backbone(tensor)
-        x = self.pool(x)
-        x = torch.flatten(x, 1)
-        pm25_estimate = self.head(x)
-        return pm25_estimate.item()
+        return self.head(self._features(tensor)).item()
+
+    @torch.no_grad()
+    def predict_with_uncertainty(self, tensor: torch.Tensor, n_samples: int = 20) -> tuple[float, float]:
+        """
+        Monte-Carlo dropout estimate of prediction uncertainty.
+
+        The backbone is deterministic and runs once; only the dropout-bearing
+        head is re-sampled, so the extra cost over predict() is negligible.
+
+        Returns (mean, std) of the raw head output across n_samples passes.
+        A wide spread means the features land in a region the head has not
+        learned confidently — the basis for a real confidence score.
+        """
+        features = self._features(tensor)
+
+        dropouts = [m for m in self.head.modules() if isinstance(m, nn.Dropout)]
+        if not dropouts or n_samples < 2:
+            # No stochastic layers to sample: uncertainty is unavailable.
+            return self.head(features).item(), 0.0
+
+        for m in dropouts:
+            m.train()  # re-enable dropout without disturbing BatchNorm
+        try:
+            samples = torch.cat([self.head(features) for _ in range(n_samples)])
+        finally:
+            for m in dropouts:
+                m.eval()
+
+        mean = samples.mean().item()
+        std = samples.std(unbiased=True).item()
+        logger.debug("[MODEL] mc_dropout: n=%d | mean=%.4f | std=%.4f", n_samples, mean, std)
+        return mean, std
