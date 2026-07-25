@@ -59,10 +59,48 @@ The backend was developed in 5 smaller, manageable stages:
 3. Run the development server: `npm run dev`
 4. Open `http://localhost:3000` in your browser.
 
+### Signing in
+The app sits behind a login screen. A demo account is seeded on backend startup:
+
+| Username | Password |
+| --- | --- |
+| `admin` | `doniponi228` |
+
+The sign-in card has a **Use demo credentials** button that fills these in. You
+can also register a new account from the same screen (username 3–32 chars,
+password 8+ chars).
+
+Accounts live in `backend/airq.db` (SQLite, gitignored), with passwords stored as
+salted PBKDF2-HMAC-SHA256. Sessions are JWTs signed with `JWT_SECRET` from
+`backend/.env` — leave it blank and the key is regenerated each restart, which
+signs everyone out. Set `DEMO_PASSWORD=` (empty) to stop seeding the demo
+account before deploying anywhere public.
+
 ---
 
 ## Technologies Used
 * **Frontend:** Next.js, React, TailwindCSS, Mapbox GL JS
 * **Backend:** FastAPI, Python, Pydantic, HTTPX
 * **Machine Learning:** PyTorch, Torchvision (EfficientNet-B0)
-* **External APIs:** WAQI (World Air Quality Index), OpenAQ, OpenWeatherMap, Mapbox
+* **External APIs:** WAQI (World Air Quality Index), OpenAQ, OpenWeatherMap, Mapbox, Google Gemini (LLM)
+
+---
+
+## Architecture & Business Model
+
+### Mathematical/Algorithmic Model
+Our pipeline uses **EfficientNet-B0** with a custom regression head. To calculate prediction uncertainty (confidence score), we use **Monte-Carlo (MC) Dropout**, running the regression head multiple times with dropout enabled.
+This raw AI prediction is then passed into a **Data Fusion Engine**, blending it with meteorological data (humidity/wind) and real-time station data (WAQI/OpenAQ) using Inverse Distance Weighting. Finally, **Google Gemini LLM** generates a natural-language explanation of the local air quality.
+
+### Commercial & Social Value
+- **B2B / DaaS**: API access to hyper-local air quality data for real-estate, smart-home systems, and fitness apps.
+- **Freemium B2C**: Free core features, with "AirQ Pro" offering personalized health push-notifications.
+- **Social Impact**: Democratizing eco-monitoring by turning every smartphone into an air-quality sensor, filling "blind spots" in governmental monitoring networks.
+
+---
+
+## Future Roadmap: Claude-Inspired UI
+We plan to transition the frontend to a distraction-free, conversational interface inspired by Claude AI:
+- **Central Chat Thread**: AI responses streamed with markdown support.
+- **Collapsible Sidebar**: For history and settings.
+- **Floating Input Area**: Auto-expanding textarea with attachment buttons, pinned at the bottom.

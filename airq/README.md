@@ -140,3 +140,9 @@ lib/
 types/
   index.ts               # AnalyzeResponse, Coords, PresetLocation
 ```
+
+## Future Roadmap: Claude-Inspired UI
+We are planning a complete UI overhaul to move towards a conversational, Claude-inspired design. 
+- **Distraction-Free Layout**: Collapsible sidebar and a main content area focused solely on the analysis thread.
+- **Dynamic Input**: An auto-expanding text area at the bottom for image uploads and natural language interaction.
+- **Interactive Explanations**: Leveraging LLMs to have a conversational thread about the air quality instead of a static results card.
