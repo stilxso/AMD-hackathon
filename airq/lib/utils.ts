@@ -5,11 +5,34 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function aqiColor(score: number): { text: string; bg: string; ring: string; hex: string } {
-  if (score <= 50)  return { text: "text-emerald-300", bg: "bg-emerald-500/15", ring: "ring-emerald-400/50", hex: "#34d399" };
-  if (score <= 100) return { text: "text-yellow-300",  bg: "bg-yellow-500/15",  ring: "ring-yellow-400/50",  hex: "#facc15" };
-  if (score <= 150) return { text: "text-orange-300",  bg: "bg-orange-500/15",  ring: "ring-orange-400/50",  hex: "#fb923c" };
-  if (score <= 200) return { text: "text-red-300",     bg: "bg-red-500/15",     ring: "ring-red-400/50",     hex: "#f87171" };
-  if (score <= 300) return { text: "text-fuchsia-300", bg: "bg-fuchsia-500/15", ring: "ring-fuchsia-400/50", hex: "#e879f9" };
-  return               { text: "text-rose-300",     bg: "bg-rose-600/20",    ring: "ring-rose-500/60",    hex: "#e11d48" };
+export const ALARM = "#ff3b30";
+
+export type AqiTone = {
+  /** Ramp colour, used identically by the readout, the map field and the legend. */
+  hex: string;
+  /** 0–5. Drives bar fill and how loud the type is allowed to be. */
+  step: number;
+  /** True for the two worst bands, the only place colour is spent. */
+  alarm: boolean;
+};
+
+/**
+ * Severity as density, not hue.
+ *
+ * The page is white particulate on black, so dirtier air is *brighter* — clean
+ * air is a quiet grey that barely lifts off the background, and by the time the
+ * number is pure white it is already unhealthy. Beyond 200 the ramp breaks into
+ * the single alarm colour, which appears nowhere else in the product.
+ */
+export function aqiTone(score: number): AqiTone {
+  if (score <= 50)  return { hex: "#6f6f6f", step: 1, alarm: false };
+  if (score <= 100) return { hex: "#9c9c9c", step: 2, alarm: false };
+  if (score <= 150) return { hex: "#cfcfcf", step: 3, alarm: false };
+  if (score <= 200) return { hex: "#ffffff", step: 4, alarm: false };
+  if (score <= 300) return { hex: ALARM,     step: 5, alarm: true };
+  return              { hex: "#ff1f10",      step: 6, alarm: true };
 }
+
+/** The ramp as CSS, shared by every gradient that shows the scale. */
+export const AQI_GRADIENT =
+  `linear-gradient(90deg,#6f6f6f,#9c9c9c,#cfcfcf,#ffffff,${ALARM},#ff1f10)`;

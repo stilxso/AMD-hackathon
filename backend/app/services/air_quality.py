@@ -1,13 +1,69 @@
 import asyncio
 import math
 import logging
+import time
 import httpx
-from typing import List
+from dataclasses import dataclass, field, replace
+from typing import Awaitable, Callable, Dict, List, Literal, Optional, Tuple
 from .schemas import StationData
 from .fusion import aqi_to_pm25
 from app.config import settings
 
 logger = logging.getLogger("airq.services.aq")
+
+# "disabled" means no credential was configured, "unauthorized" means the
+# credential was rejected. Collapsing both to an empty list is what let a dead
+# OpenAQ key look identical to a region with no monitors.
+SourceStatus = Literal["ok", "empty", "disabled", "unauthorized", "error"]
+
+
+@dataclass
+class SourceResult:
+    """One upstream's outcome, so the caller can report why data is missing."""
+
+    name: str
+    status: SourceStatus
+    stations: List[StationData] = field(default_factory=list)
+    detail: Optional[str] = None
+
+
+@dataclass
+class AirQualityResult:
+    stations: List[StationData]
+    sources: List[SourceResult]
+
+
+def _classify_http_error(name: str, exc: Exception) -> SourceResult:
+    """Map a request failure onto a status the UI can explain to the user."""
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (401, 403):
+        logger.error("%s rejected the configured credential (HTTP %s)", name, exc.response.status_code)
+        return SourceResult(name=name, status="unauthorized", detail="API key rejected")
+    logger.error("%s API error: %s", name, exc)
+    return SourceResult(name=name, status="error", detail=str(exc)[:120])
+
+def _classify_waqi_body(name: str, data: dict) -> SourceResult:
+    """
+    WAQI reports failures in the body with HTTP 200, so they need their own
+    triage. The status field is "nope" for a refused lookup, not "error".
+    """
+    detail = str(data.get("data") or data.get("status"))[:120]
+    low = detail.lower()
+
+    if "token" in low or "key" in low:
+        logger.error("WAQI rejected the token: %s", detail)
+        return SourceResult(name=name, status="unauthorized", detail=detail)
+
+    # "can not connect" is the geo feed saying it cannot resolve a station for
+    # this point. It is stable for a given area rather than transient, and
+    # /map/bounds still covers the same box, so this is a gap in one feed and
+    # not a fault worth alarming the user about.
+    if "can not connect" in low or "unknown station" in low:
+        logger.info("%s has no feed for this point: %s", name, detail)
+        return SourceResult(name=name, status="empty", detail="no WAQI feed for this point")
+
+    logger.warning("WAQI %s returned status %s: %s", name, data.get("status"), detail)
+    return SourceResult(name=name, status="error", detail=detail)
+
 
 def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Calculate the great circle distance in kilometers between two points."""
@@ -24,9 +80,10 @@ class WaqiClient:
         self.token = token
         self.base_url = "https://api.waqi.info"
 
-    async def get_nearest(self, lat: float, lng: float) -> List[StationData]:
+    async def get_nearest(self, lat: float, lng: float) -> SourceResult:
+        name_ = "waqi-nearest"
         if not self.token:
-            return []
+            return SourceResult(name=name_, status="disabled", detail="WAQI_API_TOKEN not set")
 
         url = f"{self.base_url}/feed/geo:{lat};{lng}/?token={self.token}"
         try:
@@ -35,9 +92,9 @@ class WaqiClient:
                 resp.raise_for_status()
                 data = resp.json()
 
+                # WAQI signals a bad token in the body, not the HTTP status.
                 if data.get("status") != "ok":
-                    logger.warning(f"WAQI returned status: {data.get('status')}")
-                    return []
+                    return _classify_waqi_body(name_, data)
 
                 d = data.get("data", {})
 
@@ -45,33 +102,32 @@ class WaqiClient:
                 iaqi = d.get("iaqi", {})
                 pm25_data = iaqi.get("pm25")
                 if not pm25_data:
-                    return []
+                    return SourceResult(name=name_, status="empty", detail="station reports no PM2.5")
 
                 pm25_val = float(pm25_data.get("v", 0))
 
                 city = d.get("city", {})
                 geo = city.get("geo", [0, 0])
                 if len(geo) != 2:
-                    return []
+                    return SourceResult(name=name_, status="empty", detail="no station coordinates")
 
                 st_lat, st_lng = float(geo[0]), float(geo[1])
                 name = city.get("name", "Unknown Station")
 
                 dist = haversine(lat, lng, st_lat, st_lng)
 
-                return [StationData(
+                return SourceResult(name=name_, status="ok", stations=[StationData(
                     lat=st_lat,
                     lng=st_lng,
                     pm25=pm25_val,
                     distance_km=dist,
                     name=name,
                     source="waqi"
-                )]
+                )])
         except Exception as e:
-            logger.error(f"WAQI API error: {e}")
-            return []
+            return _classify_http_error(name_, e)
 
-    async def get_in_bounds(self, lat: float, lng: float, radius_km: int = 50) -> List[StationData]:
+    async def get_in_bounds(self, lat: float, lng: float, radius_km: int = 50) -> SourceResult:
         """
         Every WAQI station inside a bounding box around the point.
 
@@ -80,8 +136,9 @@ class WaqiClient:
         trade-off is that the bounds feed publishes only a composite AQI per
         station, so concentrations here are reconstructed via aqi_to_pm25.
         """
+        name_ = "waqi-bounds"
         if not self.token:
-            return []
+            return SourceResult(name=name_, status="disabled", detail="WAQI_API_TOKEN not set")
 
         # Degrees per km: latitude is constant, longitude shrinks toward the poles.
         d_lat = radius_km / 111.0
@@ -90,6 +147,7 @@ class WaqiClient:
         url = f"{self.base_url}/map/bounds/?latlng={latlng}&networks=all&token={self.token}"
 
         stations = []
+        offline = 0
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 resp = await client.get(url)
@@ -97,14 +155,14 @@ class WaqiClient:
                 data = resp.json()
 
                 if data.get("status") != "ok":
-                    logger.warning(f"WAQI bounds returned status: {data.get('status')}")
-                    return []
+                    return _classify_waqi_body(name_, data)
 
                 for r in data.get("data", []):
                     # Offline stations report "-" instead of a number.
                     try:
                         aqi_val = float(r.get("aqi"))
                     except (TypeError, ValueError):
+                        offline += 1
                         continue
 
                     st_lat, st_lng = r.get("lat"), r.get("lon")
@@ -123,18 +181,27 @@ class WaqiClient:
                         source="waqi"
                     ))
         except Exception as e:
-            logger.error(f"WAQI bounds API error: {e}")
+            return _classify_http_error(name_, e)
 
-        return stations
+        # Roughly a third of the stations WAQI lists here report "-". Surfacing
+        # the count explains a thin map in a city that looks well covered.
+        detail = f"{offline} station(s) offline" if offline else None
+        return SourceResult(
+            name=name_,
+            status="ok" if stations else "empty",
+            stations=stations,
+            detail=detail,
+        )
 
 class OpenAQClient:
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.base_url = "https://api.openaq.org/v3/locations"
 
-    async def get_nearby(self, lat: float, lng: float, radius_km: int = 50) -> List[StationData]:
+    async def get_nearby(self, lat: float, lng: float, radius_km: int = 50) -> SourceResult:
+        name_ = "openaq"
         if not self.api_key:
-            return []
+            return SourceResult(name=name_, status="disabled", detail="OPENAQ_API_KEY not set")
 
         # OpenAQ caps the radius at 25 km regardless of what we ask for.
         radius_m = min(radius_km, 25) * 1000
@@ -185,9 +252,13 @@ class OpenAQClient:
                         source="openaq"
                     ))
         except Exception as e:
-            logger.error(f"OpenAQ API error: {e}")
+            return _classify_http_error(name_, e)
 
-        return stations
+        return SourceResult(
+            name=name_,
+            status="ok" if stations else "empty",
+            stations=stations,
+        )
 
 class OpenMeteoClient:
     """
@@ -199,7 +270,8 @@ class OpenMeteoClient:
     def __init__(self):
         self.base_url = "https://air-quality-api.open-meteo.com/v1/air-quality"
 
-    async def get_estimate(self, lat: float, lng: float) -> List[StationData]:
+    async def get_estimate(self, lat: float, lng: float) -> SourceResult:
+        name_ = "open-meteo"
         url = f"{self.base_url}?latitude={lat}&longitude={lng}&current=pm2_5"
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
@@ -209,9 +281,9 @@ class OpenMeteoClient:
 
                 pm25_val = data.get("current", {}).get("pm2_5")
                 if pm25_val is None:
-                    return []
+                    return SourceResult(name=name_, status="empty", detail="no pm2_5 in response")
 
-                return [StationData(
+                return SourceResult(name=name_, status="ok", stations=[StationData(
                     lat=lat,
                     lng=lng,
                     pm25=float(pm25_val),
@@ -219,10 +291,9 @@ class OpenMeteoClient:
                     name="Open-Meteo CAMS model",
                     source="open-meteo",
                     kind="model",
-                )]
+                )])
         except Exception as e:
-            logger.error(f"Open-Meteo API error: {e}")
-            return []
+            return _classify_http_error(name_, e)
 
 class OpenWeatherAirClient:
     """
@@ -234,9 +305,10 @@ class OpenWeatherAirClient:
         self.api_key = api_key
         self.base_url = "https://api.openweathermap.org/data/2.5/air_pollution"
 
-    async def get_estimate(self, lat: float, lng: float) -> List[StationData]:
+    async def get_estimate(self, lat: float, lng: float) -> SourceResult:
+        name_ = "openweather"
         if not self.api_key:
-            return []
+            return SourceResult(name=name_, status="disabled", detail="OPENWEATHER_API_KEY not set")
 
         url = f"{self.base_url}?lat={lat}&lon={lng}&appid={self.api_key}"
         try:
@@ -247,13 +319,13 @@ class OpenWeatherAirClient:
 
                 entries = data.get("list", [])
                 if not entries:
-                    return []
+                    return SourceResult(name=name_, status="empty", detail="empty list")
 
                 pm25_val = entries[0].get("components", {}).get("pm2_5")
                 if pm25_val is None:
-                    return []
+                    return SourceResult(name=name_, status="empty", detail="no pm2_5 component")
 
-                return [StationData(
+                return SourceResult(name=name_, status="ok", stations=[StationData(
                     lat=lat,
                     lng=lng,
                     pm25=float(pm25_val),
@@ -261,33 +333,87 @@ class OpenWeatherAirClient:
                     name="OpenWeather model",
                     source="openweather",
                     kind="model",
-                )]
+                )])
         except Exception as e:
-            logger.error(f"OpenWeather Air Pollution API error: {e}")
-            return []
+            return _classify_http_error(name_, e)
 
-async def fetch_all_stations(lat: float, lng: float, radius_km: int = 50) -> List[StationData]:
-    """Fetch from every configured source and combine."""
+# Every request fans out to five upstreams, and panning the map issues a lot of
+# requests over nearly the same point. Open-Meteo's free tier rate-limits that
+# burst with a 429. Since CAMS republishes hourly on an ~11 km grid and the
+# station feeds update at most hourly too, coordinates are rounded to ~1 km and
+# results reused for a few minutes.
+_CACHE_TTL_S = 300
+_CACHE_MAX = 512
+_cache: Dict[str, Tuple[float, SourceResult]] = {}
+
+
+def _cache_key(name: str, lat: float, lng: float, radius_km: int) -> str:
+    return f"{name}:{lat:.2f}:{lng:.2f}:{radius_km}"
+
+
+async def _cached(key: str, fetch: Callable[[], Awaitable[SourceResult]]) -> SourceResult:
+    """Reuse a recent result, and fall back to a stale one when fetching fails."""
+    now = time.monotonic()
+    hit = _cache.get(key)
+    if hit and now - hit[0] < _CACHE_TTL_S:
+        return hit[1]
+
+    result = await fetch()
+
+    if result.status in ("ok", "empty"):
+        if len(_cache) >= _CACHE_MAX:
+            # Stale entries are still useful as fallbacks, so only the ones too
+            # old to be worth serving are dropped.
+            cutoff = now - 3600
+            for k in [k for k, (ts, _) in _cache.items() if ts < cutoff]:
+                del _cache[k]
+        _cache[key] = (now, result)
+        return result
+
+    # The upstream is rate-limiting us or is down. A reading from minutes ago
+    # beats a hole in the map and a "degraded" banner for what is a transient
+    # 429, so serve the stale copy and say so in the detail line.
+    if hit:
+        age_min = int((now - hit[0]) / 60)
+        logger.warning("%s failed (%s), serving cached result from %d min ago", key, result.detail, age_min)
+        return replace(hit[1], detail=f"cached {age_min} min ago — live fetch: {result.detail}")
+
+    return result
+
+
+async def fetch_air_quality(lat: float, lng: float, radius_km: int = 50) -> AirQualityResult:
+    """
+    Fetch from every configured source and combine.
+
+    Returns the per-source outcome alongside the readings so a caller can say
+    *why* coverage is thin instead of presenting an empty map as a healthy one.
+    """
     waqi = WaqiClient(settings.waqi_api_token)
     openaq = OpenAQClient(settings.openaq_api_key)
     open_meteo = OpenMeteoClient()
     openweather_air = OpenWeatherAirClient(settings.openweather_api_key)
 
+    names = ["waqi-bounds", "waqi-nearest", "openaq", "open-meteo", "openweather"]
     results = await asyncio.gather(
-        waqi.get_in_bounds(lat, lng, radius_km),
-        waqi.get_nearest(lat, lng),
-        openaq.get_nearby(lat, lng, radius_km),
-        open_meteo.get_estimate(lat, lng),
-        openweather_air.get_estimate(lat, lng),
+        _cached(_cache_key("waqi-bounds", lat, lng, radius_km), lambda: waqi.get_in_bounds(lat, lng, radius_km)),
+        _cached(_cache_key("waqi-nearest", lat, lng, 0), lambda: waqi.get_nearest(lat, lng)),
+        _cached(_cache_key("openaq", lat, lng, radius_km), lambda: openaq.get_nearby(lat, lng, radius_km)),
+        _cached(_cache_key("open-meteo", lat, lng, 0), lambda: open_meteo.get_estimate(lat, lng)),
+        _cached(_cache_key("openweather", lat, lng, 0), lambda: openweather_air.get_estimate(lat, lng)),
         return_exceptions=True,
     )
 
     stations = []
-    for res in results:
-        if isinstance(res, list):
-            stations.extend(res)
+    sources: List[SourceResult] = []
+    for name, res in zip(names, results):
+        if isinstance(res, SourceResult):
+            sources.append(res)
+            stations.extend(res.stations)
         else:
-            logger.error(f"Air quality source failed: {res}")
+            # gather(return_exceptions=True) surfaces anything the clients did
+            # not catch themselves.
+            logger.error("Air quality source %s failed: %s", name, res)
+            sources.append(SourceResult(name=name, status="error", detail=str(res)[:120]))
 
     # Sort by distance
     stations.sort(key=lambda x: x.distance_km)
@@ -307,11 +433,23 @@ async def fetch_all_stations(lat: float, lng: float, radius_km: int = 50) -> Lis
     unique.sort(key=lambda x: x.distance_km)
 
     logger.debug(
-        "[AQ] %d unique readings (%d sensors, %d model) from sources: %s",
+        "[AQ] %d unique readings (%d sensors, %d model) | sources: %s",
         len(unique),
         sum(1 for s in unique if s.kind == "sensor"),
         sum(1 for s in unique if s.kind == "model"),
-        sorted({s.source for s in unique}),
+        ", ".join(f"{s.name}={s.status}({len(s.stations)})" for s in sources),
     )
 
-    return unique
+    # A degraded source is worth a warning even when others covered for it —
+    # this is the log line that was missing when OpenAQ silently stopped working.
+    for s in sources:
+        if s.status in ("unauthorized", "error"):
+            logger.warning("[AQ] source %s is %s: %s", s.name, s.status, s.detail)
+
+    return AirQualityResult(stations=unique, sources=sources)
+
+
+async def fetch_all_stations(lat: float, lng: float, radius_km: int = 50) -> List[StationData]:
+    """Readings only, for callers that do not report source health."""
+    result = await fetch_air_quality(lat, lng, radius_km)
+    return result.stations

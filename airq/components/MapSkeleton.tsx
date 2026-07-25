@@ -1,16 +1,12 @@
 "use client";
 
-import { Map as MapIcon } from "lucide-react";
-
 export function MapSkeleton() {
   return (
-    <div className="relative w-full h-full min-h-[360px] lg:min-h-[560px] glass overflow-hidden flex items-center justify-center">
-      <div className="pointer-events-none absolute inset-0 cyber-grid-bg opacity-40 animate-grid-drift" />
-      <div className="relative z-10 flex flex-col items-center text-emerald-100/70">
-        <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-400/30 flex items-center justify-center animate-pulse-glow">
-          <MapIcon className="w-6 h-6 text-emerald-300" />
-        </div>
-        <div className="mt-3 text-sm">Loading map…</div>
+    <div className="relative flex h-full min-h-[360px] w-full items-center justify-center overflow-hidden border border-white/10 lg:min-h-[560px]">
+      <div aria-hidden className="lp-lattice pointer-events-none absolute inset-0 opacity-70" />
+      <div className="lp-mono relative flex items-center gap-3 text-white/40">
+        <span className="h-1 w-1 animate-pulse rounded-full bg-white" />
+        Loading map…
       </div>
     </div>
   );

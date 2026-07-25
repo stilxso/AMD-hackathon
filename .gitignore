@@ -9,13 +9,26 @@ build/
 
 # ── Environment / secrets ──
 .env
-*.env.local
+.env.*
+*.env
+!.env.example
+!*.env.example
+
+# API keys / credentials
+*.pem
+*.key
+*credentials*.json
+secrets.*
+
+# ── Local user database ──
+backend/*.db
 
 # ── IDE ──
 .idea/
 .vscode/
 *.swp
 *.swo
+docs.md
 CLAUDE.md
 
 # ── Project-specific ──

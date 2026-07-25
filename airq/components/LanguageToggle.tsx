@@ -8,18 +8,18 @@ const LANGS: Lang[] = ["EN", "RU", "KZ"];
 export function LanguageToggle() {
   const { lang, setLang } = useI18n();
   return (
-    <div className="glass px-1 py-1 flex items-center gap-1 text-[13px]">
-      {LANGS.map((l) => {
+    <div className="flex items-center border border-white/15">
+      {LANGS.map((l, i) => {
         const active = lang === l;
         return (
           <button
             key={l}
             onClick={() => setLang(l)}
+            data-cursor="grow"
             className={cn(
-              "px-3 py-1.5 rounded-xl transition-all font-medium tracking-wider",
-              active
-                ? "bg-emerald-500/90 text-forest-950 shadow-glow-emerald"
-                : "text-emerald-100/70 hover:text-white hover:bg-white/5",
+              "lp-mono px-3 py-2 transition-colors",
+              i > 0 && "border-l border-white/15",
+              active ? "bg-white text-black" : "text-white/50 hover:text-white",
             )}
             aria-pressed={active}
           >

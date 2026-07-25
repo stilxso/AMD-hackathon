@@ -4,10 +4,13 @@ import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 export type Lang = "EN" | "RU" | "KZ";
 
-type Dict = {
+export type Dict = {
   brand: string;
   tagline: string;
   scanSky: string;
+  scanNnOnly: string;
+  nnOnlyBadge: string;
+  nnOnlyHint: string;
   uploadPrompt: string;
   chooseAnother: string;
   reset: string;
@@ -33,6 +36,9 @@ type Dict = {
   stationsModelled: string;
   stationsLoading: string;
   modelled: string;
+  gridCells: string;
+  stationsFailed: string;
+  sourcesDegraded: string;
   low: string;
   high: string;
   mapTokenMissing: string;
@@ -47,6 +53,33 @@ type Dict = {
   errorBody: string;
   tryAgain: string;
   poweredBy: string;
+  authSignIn: string;
+  authRegister: string;
+  authSignInTitle: string;
+  authRegisterTitle: string;
+  authSignInSubtitle: string;
+  authRegisterSubtitle: string;
+  authUsername: string;
+  authPassword: string;
+  authUsernamePlaceholder: string;
+  authPasswordPlaceholder: string;
+  authSubmitSignIn: string;
+  authSubmitRegister: string;
+  authNoAccount: string;
+  authHasAccount: string;
+  authPasswordHint: string;
+  authDemoLabel: string;
+  authDemoFill: string;
+  authSignOut: string;
+  authChecking: string;
+  locationSimulated: string;
+  adminLocationTitle: string;
+  adminLocationHint: string;
+  adminLat: string;
+  adminLng: string;
+  adminApply: string;
+  adminResetLocation: string;
+  adminInvalidCoords: string;
 };
 
 const dictionaries: Record<Lang, Dict> = {
@@ -54,6 +87,9 @@ const dictionaries: Record<Lang, Dict> = {
     brand: "AirQ",
     tagline: "Photograph the sky. Read your air.",
     scanSky: "Scan Sky",
+    scanNnOnly: "Neural net only",
+    nnOnlyBadge: "Neural net only",
+    nnOnlyHint: "Vision model output, no stations or weather.",
     uploadPrompt: "Drop a photo of the sky, or tap to capture",
     chooseAnother: "Choose another photo",
     reset: "New scan",
@@ -85,6 +121,9 @@ const dictionaries: Record<Lang, Dict> = {
     stationsModelled: "Modelled coverage",
     stationsLoading: "Loading readings…",
     modelled: "modelled",
+    gridCells: "modelled cells",
+    stationsFailed: "Readings unavailable",
+    sourcesDegraded: "Some data sources are degraded",
     low: "Low",
     high: "High",
     mapTokenMissing: "Mapbox token required",
@@ -99,11 +138,41 @@ const dictionaries: Record<Lang, Dict> = {
     errorBody: "The AI backend did not respond. Try again in a moment.",
     tryAgain: "Try again",
     poweredBy: "AI-vision · Tech Vision 2026",
+    authSignIn: "Sign in",
+    authRegister: "Register",
+    authSignInTitle: "Welcome back",
+    authRegisterTitle: "Create your account",
+    authSignInSubtitle: "Sign in to scan the sky and read your air.",
+    authRegisterSubtitle: "Register to start scanning the sky.",
+    authUsername: "Username",
+    authPassword: "Password",
+    authUsernamePlaceholder: "your-username",
+    authPasswordPlaceholder: "••••••••",
+    authSubmitSignIn: "Sign in",
+    authSubmitRegister: "Create account",
+    authNoAccount: "No account yet? Register",
+    authHasAccount: "Already registered? Sign in",
+    authPasswordHint: "At least 8 characters.",
+    authDemoLabel: "Demo account",
+    authDemoFill: "Use demo credentials",
+    authSignOut: "Sign out",
+    authChecking: "Checking your session…",
+    locationSimulated: "Simulated location",
+    adminLocationTitle: "Admin · location override",
+    adminLocationHint: "Coordinates sent to the analyzer instead of your real position.",
+    adminLat: "Latitude",
+    adminLng: "Longitude",
+    adminApply: "Apply",
+    adminResetLocation: "Reset to real location",
+    adminInvalidCoords: "Latitude must be −90…90, longitude −180…180.",
   },
   RU: {
     brand: "AirQ",
     tagline: "Сфотографируйте небо — прочитайте свой воздух.",
     scanSky: "Анализ воздуха",
+    scanNnOnly: "Только нейросеть",
+    nnOnlyBadge: "Только нейросеть",
+    nnOnlyHint: "Оценка модели без станций и погоды.",
     uploadPrompt: "Перетащите фото неба или коснитесь, чтобы сделать снимок",
     chooseAnother: "Выбрать другое фото",
     reset: "Новый анализ",
@@ -135,6 +204,9 @@ const dictionaries: Record<Lang, Dict> = {
     stationsModelled: "Модельные данные",
     stationsLoading: "Загрузка данных…",
     modelled: "модель",
+    gridCells: "модельных ячеек",
+    stationsFailed: "Данные недоступны",
+    sourcesDegraded: "Некоторые источники данных недоступны",
     low: "Низкое",
     high: "Высокое",
     mapTokenMissing: "Требуется токен Mapbox",
@@ -149,11 +221,41 @@ const dictionaries: Record<Lang, Dict> = {
     errorBody: "AI-бэкенд не ответил. Попробуйте ещё раз.",
     tryAgain: "Повторить",
     poweredBy: "AI-vision · Tech Vision 2026",
+    authSignIn: "Вход",
+    authRegister: "Регистрация",
+    authSignInTitle: "С возвращением",
+    authRegisterTitle: "Создайте аккаунт",
+    authSignInSubtitle: "Войдите, чтобы сканировать небо и читать свой воздух.",
+    authRegisterSubtitle: "Зарегистрируйтесь, чтобы начать сканирование неба.",
+    authUsername: "Имя пользователя",
+    authPassword: "Пароль",
+    authUsernamePlaceholder: "ваш-логин",
+    authPasswordPlaceholder: "••••••••",
+    authSubmitSignIn: "Войти",
+    authSubmitRegister: "Создать аккаунт",
+    authNoAccount: "Нет аккаунта? Зарегистрируйтесь",
+    authHasAccount: "Уже есть аккаунт? Войдите",
+    authPasswordHint: "Минимум 8 символов.",
+    authDemoLabel: "Демо-аккаунт",
+    authDemoFill: "Подставить демо-данные",
+    authSignOut: "Выйти",
+    authChecking: "Проверяем вашу сессию…",
+    locationSimulated: "Смоделированная локация",
+    adminLocationTitle: "Админ · подмена локации",
+    adminLocationHint: "Эти координаты уйдут в анализатор вместо вашего реального положения.",
+    adminLat: "Широта",
+    adminLng: "Долгота",
+    adminApply: "Применить",
+    adminResetLocation: "Вернуть реальную локацию",
+    adminInvalidCoords: "Широта должна быть −90…90, долгота −180…180.",
   },
   KZ: {
     brand: "AirQ",
     tagline: "Аспанды суретке түсіріңіз — ауаны оқыңыз.",
     scanSky: "Ауаны талдау",
+    scanNnOnly: "Тек нейрожелі",
+    nnOnlyBadge: "Тек нейрожелі",
+    nnOnlyHint: "Станциясыз және ауа райысыз модель бағасы.",
     uploadPrompt: "Аспан суретін тастаңыз немесе түсіру үшін басыңыз",
     chooseAnother: "Басқа сурет таңдау",
     reset: "Жаңа талдау",
@@ -185,6 +287,9 @@ const dictionaries: Record<Lang, Dict> = {
     stationsModelled: "Модельдік деректер",
     stationsLoading: "Деректер жүктелуде…",
     modelled: "модель",
+    gridCells: "модельдік ұяшық",
+    stationsFailed: "Деректер қолжетімсіз",
+    sourcesDegraded: "Кейбір дерек көздері қолжетімсіз",
     low: "Төмен",
     high: "Жоғары",
     mapTokenMissing: "Mapbox токені қажет",
@@ -199,6 +304,33 @@ const dictionaries: Record<Lang, Dict> = {
     errorBody: "AI-сервер жауап бермеді. Сәл кейін қайталап көріңіз.",
     tryAgain: "Қайталау",
     poweredBy: "AI-vision · Tech Vision 2026",
+    authSignIn: "Кіру",
+    authRegister: "Тіркелу",
+    authSignInTitle: "Қайта келуіңізбен",
+    authRegisterTitle: "Аккаунт жасаңыз",
+    authSignInSubtitle: "Аспанды сканерлеп, ауаңызды оқу үшін кіріңіз.",
+    authRegisterSubtitle: "Аспанды сканерлеуді бастау үшін тіркеліңіз.",
+    authUsername: "Пайдаланушы аты",
+    authPassword: "Құпиясөз",
+    authUsernamePlaceholder: "логиніңіз",
+    authPasswordPlaceholder: "••••••••",
+    authSubmitSignIn: "Кіру",
+    authSubmitRegister: "Аккаунт жасау",
+    authNoAccount: "Аккаунт жоқ па? Тіркеліңіз",
+    authHasAccount: "Аккаунт бар ма? Кіріңіз",
+    authPasswordHint: "Кемінде 8 таңба.",
+    authDemoLabel: "Демо-аккаунт",
+    authDemoFill: "Демо деректерін қою",
+    authSignOut: "Шығу",
+    authChecking: "Сессияңыз тексерілуде…",
+    locationSimulated: "Модельденген орналасу",
+    adminLocationTitle: "Әкімші · орынды ауыстыру",
+    adminLocationHint: "Нақты орныңыздың орнына талдағышқа осы координаттар жіберіледі.",
+    adminLat: "Ендік",
+    adminLng: "Бойлық",
+    adminApply: "Қолдану",
+    adminResetLocation: "Нақты орынға қайту",
+    adminInvalidCoords: "Ендік −90…90, бойлық −180…180 болуы керек.",
   },
 };
 

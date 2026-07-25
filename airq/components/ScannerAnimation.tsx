@@ -6,6 +6,13 @@ import { useI18n } from "@/lib/i18n";
 
 type Props = { imageUrl: string };
 
+const BRACKETS = [
+  "left-2 top-2 border-l border-t",
+  "right-2 top-2 border-r border-t",
+  "bottom-2 left-2 border-b border-l",
+  "bottom-2 right-2 border-b border-r",
+];
+
 export function ScannerAnimation({ imageUrl }: Props) {
   const { t } = useI18n();
   const [phase, setPhase] = useState(0);
@@ -17,51 +24,42 @@ export function ScannerAnimation({ imageUrl }: Props) {
 
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.98 }}
+      initial={{ opacity: 0, scale: 0.985 }}
       animate={{ opacity: 1, scale: 1 }}
-      transition={{ duration: 0.35 }}
-      className="glass-strong p-4 sm:p-6"
+      transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+      className="lp-panel-strong p-4 sm:p-5"
     >
-      <div className="relative w-full aspect-[4/3] overflow-hidden rounded-xl border border-emerald-400/20 shadow-glow-emerald-lg">
-        {/* image */}
+      <div className="lp-scanlines relative aspect-[4/3] w-full overflow-hidden">
+        {/* The photograph is desaturated on the way in: from here on it is
+            evidence being measured, not a picture. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={imageUrl} alt="uploaded sky" className="absolute inset-0 w-full h-full object-cover" />
+        <img
+          src={imageUrl}
+          alt="uploaded sky"
+          className="absolute inset-0 h-full w-full object-cover grayscale contrast-125"
+        />
+        <div className="absolute inset-0 bg-black/35" />
 
-        {/* dark green tint */}
-        <div className="absolute inset-0 bg-emerald-950/30 mix-blend-multiply" />
-        {/* corner brackets */}
-        {[
-          "top-2 left-2 border-t-2 border-l-2",
-          "top-2 right-2 border-t-2 border-r-2",
-          "bottom-2 left-2 border-b-2 border-l-2",
-          "bottom-2 right-2 border-b-2 border-r-2",
-        ].map((c, i) => (
-          <span key={i} className={`pointer-events-none absolute ${c} border-emerald-400/80 w-6 h-6 rounded-md`} />
+        {BRACKETS.map((c) => (
+          <span key={c} aria-hidden className={`lp-bracket h-5 w-5 ${c}`} />
         ))}
-        {/* animated grid */}
-        <div className="pointer-events-none absolute inset-0 cyber-grid-bg opacity-30 animate-grid-drift" />
 
-        {/* sweeping scan line */}
-        <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          <div className="absolute left-0 right-0 h-24 -top-24 animate-scan-line">
-            <div className="h-full w-full bg-gradient-to-b from-transparent via-emerald-400/60 to-transparent blur-[1px]" />
-            <div className="absolute inset-x-0 bottom-0 h-[2px] bg-emerald-300 shadow-[0_0_18px_rgba(52,211,153,0.9)]" />
-          </div>
-        </div>
+        <div aria-hidden className="lp-lattice pointer-events-none absolute inset-0 opacity-50" />
+        <div aria-hidden className="lp-sweep" />
       </div>
 
       <div className="mt-5 flex items-center justify-between gap-4">
-        <div className="min-h-[24px] text-emerald-100/85 font-medium tabular-nums">
+        <div className="lp-mono min-h-[18px] text-white/80">
           <AnimatePresence mode="wait">
             <motion.span
               key={phase}
-              initial={{ opacity: 0, y: 6 }}
+              initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
+              exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.25 }}
               className="inline-flex items-center gap-2"
             >
-              <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 shadow-glow-emerald animate-pulse" />
+              <span className="inline-block h-1 w-1 animate-pulse rounded-full bg-white" />
               {t.states[phase]}
             </motion.span>
           </AnimatePresence>
@@ -70,9 +68,7 @@ export function ScannerAnimation({ imageUrl }: Props) {
           {t.states.map((_, i) => (
             <span
               key={i}
-              className={`h-1.5 rounded-full transition-all ${
-                i <= phase ? "w-6 bg-emerald-400" : "w-2 bg-white/15"
-              }`}
+              className={`h-px transition-all duration-500 ${i <= phase ? "w-6 bg-white" : "w-3 bg-white/20"}`}
             />
           ))}
         </div>

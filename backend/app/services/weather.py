@@ -30,7 +30,9 @@ class WeatherClient:
                     temp_c=float(main.get("temp", 20.0)),
                     humidity=float(main.get("humidity", 50.0)),
                     wind_speed=float(wind.get("speed", 2.0)),
-                    pressure=float(main.get("pressure", 1013.0))
+                    pressure=float(main.get("pressure", 1013.0)),
+                    wind_deg=float(wind["deg"]) if wind.get("deg") is not None else None,
+                    place=data.get("name") or None,
                 )
         except Exception as e:
             logger.error(f"OpenWeatherMap API error: {e}")

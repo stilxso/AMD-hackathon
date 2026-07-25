@@ -1,8 +1,9 @@
 "use client";
 
-import { motion } from "framer-motion";
-import { Activity, Gauge, RefreshCw, MapPin, Sparkles } from "lucide-react";
-import { aqiColor, cn } from "@/lib/utils";
+import { useEffect } from "react";
+import { animate, motion, useMotionValue, useTransform } from "framer-motion";
+import { SwapAction } from "@/components/landing/magnetic";
+import { aqiTone, cn } from "@/lib/utils";
 import { aqiLabel, useI18n } from "@/lib/i18n";
 import type { AnalyzeResponse, Coords } from "@/types";
 
@@ -13,111 +14,165 @@ type Props = {
   onReset: () => void;
 };
 
+const SEGMENTS = 6;
+
 export function ResultsCard({ result, imageUrl, coords, onReset }: Props) {
   const { t } = useI18n();
-  const c = aqiColor(result.aqi_score);
+  const tone = aqiTone(result.aqi_score);
   const label = aqiLabel(t, result.aqi_score);
+  // Without this the two modes produce visually identical cards, and a raw
+  // model score is easy to mistake for a corroborated one.
+  const nnOnly = result.fusion_method === "nn_only";
+  const confidence = Math.round(result.ai_confidence * 100);
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 12 }}
+      initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4 }}
-      className="space-y-5"
+      transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+      className="space-y-4"
     >
-      {/* Score panel */}
-      <div className={cn("glass-strong p-5 sm:p-7 ring-1", c.ring)}>
-        <div className="flex items-start gap-5">
-          {/* thumbnail */}
+      {/* Score */}
+      <div
+        className="lp-panel-strong overflow-hidden p-5 sm:p-6"
+        style={tone.alarm ? { borderColor: "rgba(255,59,48,0.55)" } : undefined}
+      >
+        <div className="lp-mono flex items-center justify-between text-white/40">
+          <span>{t.aqi}</span>
+          <span>{label}</span>
+        </div>
+
+        <div className="mt-3 flex items-end gap-5">
+          <Counter value={result.aqi_score} hex={tone.hex} />
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={imageUrl}
             alt="scan"
-            className="w-24 h-24 sm:w-28 sm:h-28 rounded-xl object-cover border border-white/10 shadow-xl"
+            className="mb-2 ml-auto h-20 w-20 shrink-0 border border-white/15 object-cover grayscale sm:h-24 sm:w-24"
           />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 text-emerald-100/60 text-xs uppercase tracking-widest">
-              <Gauge className="w-3.5 h-3.5" /> {t.aqi}
-            </div>
-            <div className="mt-1 flex items-end gap-3">
-              <div className={cn("text-6xl sm:text-7xl font-semibold tabular-nums leading-none neon-text", c.text)}>
-                {result.aqi_score}
-              </div>
-              <div className={cn("mb-2 px-2.5 py-1 rounded-full text-xs font-medium", c.bg, c.text)}>
-                {label}
-              </div>
-            </div>
-            <div className="mt-2 text-white/85 font-medium">{result.status_text}</div>
-          </div>
-          <button
-            onClick={onReset}
-            className="hidden sm:inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-emerald-100 text-sm transition-colors"
-          >
-            <RefreshCw className="w-4 h-4" /> {t.reset}
-          </button>
         </div>
-      </div>
 
-      {/* Detail grid */}
-      <div className="grid grid-cols-2 gap-3 sm:gap-4">
-        <div className="glass p-4">
-          <div className="text-emerald-100/60 text-xs uppercase tracking-widest flex items-center gap-1.5">
-            <Sparkles className="w-3.5 h-3.5" /> {t.confidence}
-          </div>
-          <div className="mt-2 text-2xl text-white font-semibold tabular-nums">
-            {Math.round(result.ai_confidence * 100)}%
-          </div>
-          <div className="mt-2 h-1.5 bg-white/10 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-emerald-500 to-emerald-300"
-              style={{ width: `${Math.round(result.ai_confidence * 100)}%` }}
+        {/* Density ramp: how much of the scale this reading fills. */}
+        <div className="mt-5 flex gap-1">
+          {Array.from({ length: SEGMENTS }, (_, i) => (
+            <motion.span
+              key={i}
+              initial={{ scaleX: 0 }}
+              animate={{ scaleX: 1 }}
+              transition={{ duration: 0.5, delay: 0.25 + i * 0.06, ease: [0.16, 1, 0.3, 1] }}
+              className="h-1 flex-1 origin-left"
+              style={{ background: i < tone.step ? tone.hex : "rgba(255,255,255,0.1)" }}
             />
-          </div>
+          ))}
         </div>
-        <div className="glass p-4">
-          <div className="text-emerald-100/60 text-xs uppercase tracking-widest flex items-center gap-1.5">
-            <Activity className="w-3.5 h-3.5" /> {t.pollutant}
+
+        <div className="mt-4 text-sm leading-relaxed text-white/70">{result.status_text}</div>
+
+        {nnOnly && (
+          <div
+            title={t.nnOnlyHint}
+            className="lp-mono mt-4 inline-flex items-center gap-2 border border-dashed border-white/35 px-2 py-1 text-white/60"
+          >
+            {t.nnOnlyBadge}
           </div>
-          <div className="mt-2 text-2xl text-white font-semibold">{result.dominant_pollutant}</div>
-          <div className="mt-2 text-[11px] text-emerald-100/50 space-y-1.5">
-            {result.estimated_pm25 ? (
-              <>
-                <div className="flex justify-between items-center bg-black/20 px-2 py-1.5 rounded">
-                  <span>Fused (Final)</span>
-                  <span className="font-medium text-emerald-300">
-                    ~{result.aqi_score < 100 ? "0" : (result.estimated_pm25 / 22.0).toFixed(1)} 🚬 / day
-                  </span>
-                </div>
-                {result.raw_ai_pm25 !== undefined && (
-                  <div className="flex justify-between items-center bg-black/20 px-2 py-1.5 rounded opacity-75">
-                    <span>AI Vision Only</span>
-                    <span className="font-medium text-emerald-100">
-                      ~{result.aqi_score < 100 ? "0" : (result.raw_ai_pm25 / 22.0).toFixed(1)} 🚬 / day
-                    </span>
-                  </div>
-                )}
-              </>
-            ) : (
-              "Detected via AI vision model"
-            )}
-          </div>
-        </div>
-        <div className="glass p-4 col-span-2">
-          <div className="text-emerald-100/60 text-xs uppercase tracking-widest flex items-center gap-1.5">
-            <MapPin className="w-3.5 h-3.5" /> {t.coordinates}
-          </div>
-          <div className="mt-2 font-mono text-white/90 text-sm sm:text-base tabular-nums">
-            {coords.latitude.toFixed(4)}°, {coords.longitude.toFixed(4)}°
-          </div>
-        </div>
+        )}
       </div>
 
-      <button
-        onClick={onReset}
-        className="sm:hidden inline-flex w-full items-center justify-center gap-2 px-4 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-forest-950 font-medium shadow-glow-emerald"
-      >
-        <RefreshCw className="w-4 h-4" /> {t.reset}
-      </button>
+      {/* Detail — ruled rows rather than boxes, so the number above stays loud */}
+      <div className="lp-panel px-5">
+        <Row label={t.confidence}>
+          <div className="flex items-center gap-3">
+            <span className="tabular-nums text-white">{confidence}%</span>
+            <span className="h-px w-20 bg-white/15">
+              <motion.span
+                initial={{ scaleX: 0 }}
+                animate={{ scaleX: confidence / 100 }}
+                transition={{ duration: 0.8, delay: 0.3, ease: [0.16, 1, 0.3, 1] }}
+                className="block h-px origin-left bg-white"
+              />
+            </span>
+          </div>
+        </Row>
+
+        <Row label={t.pollutant}>
+          <span className="text-white">{result.dominant_pollutant}</span>
+        </Row>
+
+        {result.estimated_pm25 ? (
+          <>
+            {/* In nn_only mode the fused and raw values are the same number, so
+                listing both twice would just look like a bug. */}
+            {!nnOnly && (
+              <Row label="Fused (final)">
+                <span className="tabular-nums text-white">
+                  ~{result.aqi_score < 100 ? "0" : (result.estimated_pm25 / 22.0).toFixed(1)} 🚬 / day
+                </span>
+              </Row>
+            )}
+            {result.raw_ai_pm25 !== undefined && (
+              <Row label="AI vision only">
+                <span className="tabular-nums text-white/60">
+                  ~{result.aqi_score < 100 ? "0" : (result.raw_ai_pm25 / 22.0).toFixed(1)} 🚬 / day
+                </span>
+              </Row>
+            )}
+          </>
+        ) : (
+          <Row label="Source">
+            <span className="text-white/60">Detected via AI vision model</span>
+          </Row>
+        )}
+
+        <Row label={t.coordinates} last>
+          <span className="font-mono text-[13px] tabular-nums text-white">
+            {coords.latitude.toFixed(4)}°, {coords.longitude.toFixed(4)}°
+          </span>
+        </Row>
+      </div>
+
+      <SwapAction label={t.reset} variant="ghost" onClick={onReset} className="w-full" />
     </motion.div>
+  );
+}
+
+/** The AQI itself, counting up to its value so the reading lands rather than appears. */
+function Counter({ value, hex }: { value: number; hex: string }) {
+  const raw = useMotionValue(0);
+  const shown = useTransform(raw, (v) => Math.round(v));
+
+  useEffect(() => {
+    const anim = animate(raw, value, { duration: 1.2, ease: [0.16, 1, 0.3, 1] });
+    return () => anim.stop();
+  }, [value, raw]);
+
+  return (
+    <motion.div
+      className="lp-display text-[clamp(4rem,14vw,7rem)] tabular-nums leading-[0.8]"
+      style={{ color: hex }}
+    >
+      {shown}
+    </motion.div>
+  );
+}
+
+function Row({
+  label,
+  children,
+  last = false,
+}: {
+  label: string;
+  children: React.ReactNode;
+  last?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-center justify-between gap-4 py-3.5 text-sm",
+        !last && "border-b border-white/[0.08]",
+      )}
+    >
+      <span className="lp-mono text-white/35">{label}</span>
+      {children}
+    </div>
   );
 }

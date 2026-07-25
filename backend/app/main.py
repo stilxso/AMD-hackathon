@@ -13,7 +13,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.api.v1 import analyze, stations
+from app.api.v1 import analyze, auth, explain, stations
+from app.services.auth import ensure_demo_user, init_db
 
 logger = logging.getLogger("airq")
 
@@ -21,10 +22,14 @@ logger = logging.getLogger("airq")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Startup: load the EfficientNet-B0 model into app.state.
+    Startup: prepare the user database and load the EfficientNet-B0 model into
+    app.state.
     Shutdown: release the model from memory.
     """
     # ── Startup ──────────────────────────────────────────────────────
+    init_db()
+    ensure_demo_user()
+
     logger.info("Loading ML model from %s …", settings.model_abs_path)
 
     # Lazy import so the server can still boot if torch isn't installed yet
@@ -91,8 +96,10 @@ def create_app() -> FastAPI:
         }
 
     # ── Mount API router ─────────────────────────────────────────────
+    app.include_router(auth.router, prefix="/api/v1")
     app.include_router(analyze.router, prefix="/api/v1")
     app.include_router(stations.router, prefix="/api/v1")
+    app.include_router(explain.router, prefix="/api/v1")
 
     return app
 

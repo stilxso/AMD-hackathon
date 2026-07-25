@@ -1,28 +1,45 @@
 "use client";
 
-import { Leaf, Signal } from "lucide-react";
+import Link from "next/link";
 import { LanguageToggle } from "./LanguageToggle";
+import { useAuth } from "@/lib/auth";
 import { useI18n } from "@/lib/i18n";
 
 export function Header() {
   const { t } = useI18n();
+  const { user, logout } = useAuth();
   return (
-    <header className="sticky top-0 z-40">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="relative">
-            <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center animate-pulse-glow">
-              <Leaf className="w-5 h-5 text-emerald-300" strokeWidth={2.2} />
-            </div>
-          </div>
-          <div className="leading-tight">
-            <div className="text-white font-semibold tracking-wide text-lg neon-text">{t.brand}</div>
-            <div className="text-emerald-100/60 text-[11px] hidden sm:flex items-center gap-1.5">
-              <Signal className="w-3 h-3 text-emerald-400" /> {t.poweredBy}
-            </div>
-          </div>
+    <header className="sticky top-0 z-40 border-b border-white/10 bg-black/70 backdrop-blur-xl">
+      <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-4 sm:px-8">
+        <div className="flex items-baseline gap-3">
+          <Link href="/landing" data-cursor="grow" className="lp-display text-xl tracking-[-0.03em]">
+            {t.brand}
+          </Link>
+          <span className="lp-mono hidden text-white/35 sm:inline">{t.poweredBy}</span>
         </div>
-        <LanguageToggle />
+
+        <div className="flex items-center gap-3">
+          <LanguageToggle />
+          {user && (
+            <div className="flex items-center gap-3 border-l border-white/10 pl-3">
+              <span
+                className="lp-mono hidden max-w-[10rem] truncate text-white/50 sm:inline"
+                title={user.username}
+              >
+                {user.username}
+              </span>
+              <button
+                onClick={logout}
+                title={t.authSignOut}
+                aria-label={t.authSignOut}
+                data-cursor="grow"
+                className="lp-mono border border-white/15 px-3 py-2 text-white/60 transition-colors hover:border-white hover:bg-white hover:text-black"
+              >
+                {t.authSignOut}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );

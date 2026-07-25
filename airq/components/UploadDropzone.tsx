@@ -1,18 +1,28 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { Camera, ImagePlus, Sparkles } from "lucide-react";
 import { motion } from "framer-motion";
+import { SwapAction } from "@/components/landing/magnetic";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 type Props = {
-  onFile: (file: File, previewUrl: string) => void;
+  onFile: (file: File, previewUrl: string, nnOnly: boolean) => void;
   disabled?: boolean;
 };
 
+const BRACKETS = [
+  "left-3 top-3 border-l border-t",
+  "right-3 top-3 border-r border-t",
+  "bottom-3 left-3 border-b border-l",
+  "bottom-3 right-3 border-b border-r",
+];
+
 export function UploadDropzone({ onFile, disabled }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
+  // Which button opened the picker. A ref, not state: it is read once in the
+  // change handler and must not re-render the card between click and pick.
+  const nnOnlyRef = useRef(false);
   const [hover, setHover] = useState(false);
   const { t } = useI18n();
 
@@ -22,88 +32,108 @@ export function UploadDropzone({ onFile, disabled }: Props) {
       const file = files[0];
       if (!file.type.startsWith("image/")) return;
       const url = URL.createObjectURL(file);
-      onFile(file, url);
+      onFile(file, url, nnOnlyRef.current);
     },
     [onFile],
   );
 
+  function pick(nnOnly: boolean) {
+    nnOnlyRef.current = nnOnly;
+    inputRef.current?.click();
+  }
+
   return (
-    <div className="w-full">
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setHover(true);
-        }}
-        onDragLeave={() => setHover(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setHover(false);
-          handleFiles(e.dataTransfer.files);
-        }}
-        className={cn(
-          "glass-strong relative overflow-hidden group cursor-pointer",
-          "flex flex-col items-center justify-center text-center",
-          "px-6 py-10 sm:py-14 min-h-[340px] md:min-h-[440px]",
-          "transition-all",
-          hover ? "ring-2 ring-emerald-400/60 shadow-glow-emerald-lg" : "hover:ring-1 hover:ring-emerald-400/30",
-          disabled && "opacity-60 pointer-events-none",
-        )}
-        onClick={() => inputRef.current?.click()}
-        role="button"
-        aria-label={t.uploadPrompt}
-      >
-        {/* animated grid backdrop */}
-        <div className="pointer-events-none absolute inset-0 cyber-grid-bg opacity-30 animate-grid-drift" />
-        <div className="pointer-events-none absolute -inset-40 bg-forest-radial opacity-70" />
+    <div
+      onDragOver={(e) => {
+        e.preventDefault();
+        setHover(true);
+      }}
+      onDragLeave={() => setHover(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setHover(false);
+        nnOnlyRef.current = false;
+        handleFiles(e.dataTransfer.files);
+      }}
+      onClick={() => pick(false)}
+      role="button"
+      aria-label={t.uploadPrompt}
+      data-cursor="grow"
+      className={cn(
+        "lp-panel-strong group relative flex min-h-[380px] cursor-pointer flex-col justify-end overflow-hidden px-6 py-8 transition-colors duration-500 md:min-h-[460px] md:px-8",
+        hover ? "border-white bg-white/[0.06]" : "hover:border-white/30",
+        disabled && "pointer-events-none opacity-50",
+      )}
+    >
+      {/* measurement lattice, drifting */}
+      <div aria-hidden className="lp-lattice pointer-events-none absolute inset-0 opacity-60" />
 
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          className="hidden"
-          onChange={(e) => handleFiles(e.target.files)}
+      {/* viewfinder brackets — they open up as the frame is armed */}
+      {BRACKETS.map((c) => (
+        <span
+          key={c}
+          aria-hidden
+          className={cn(
+            "lp-bracket transition-all duration-500",
+            c,
+            hover ? "opacity-100" : "opacity-40 group-hover:opacity-80",
+          )}
         />
+      ))}
 
-        <motion.div
-          animate={{ scale: [1, 1.06, 1] }}
-          transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-          className="relative z-10 mb-6"
-        >
-          <div className="w-24 h-24 rounded-2xl bg-emerald-500/10 border border-emerald-400/30 flex items-center justify-center animate-pulse-glow">
-            <Camera className="w-10 h-10 text-emerald-300" strokeWidth={1.6} />
-          </div>
-        </motion.div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => handleFiles(e.target.files)}
+      />
 
-        <h2 className="relative z-10 text-3xl sm:text-4xl font-semibold tracking-tight text-white neon-text">
-          {t.scanSky}
+      <div className="relative">
+        <div className="lp-mono flex items-center gap-3 text-white/40">
+          <span className="h-1 w-1 animate-pulse rounded-full bg-white" />
+          {hover ? t.uploadPrompt : "PNG · JPG · HEIC · webcam"}
+        </div>
+
+        <h2 className="lp-display mt-5 text-[clamp(2.4rem,7vw,4rem)]">
+          <span className="lp-mask">
+            <motion.span
+              className="block"
+              initial={{ y: "110%" }}
+              animate={{ y: "0%" }}
+              transition={{ duration: 1, ease: [0.16, 1, 0.3, 1], delay: 0.1 }}
+            >
+              {t.scanSky}
+            </motion.span>
+          </span>
         </h2>
-        <p className="relative z-10 mt-2 max-w-md text-emerald-50/70">
-          {t.uploadPrompt}
-        </p>
 
-        <div className="relative z-10 mt-8 flex flex-wrap items-center justify-center gap-3">
-          <button
-            type="button"
+        <p className="mt-4 max-w-sm text-sm leading-relaxed text-white/45">{t.uploadPrompt}</p>
+
+        <div className="mt-8 flex flex-wrap items-center gap-3">
+          <SwapAction
+            label={t.scanSky}
             onClick={(e) => {
               e.stopPropagation();
-              inputRef.current?.click();
+              pick(false);
             }}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-forest-950 font-medium shadow-glow-emerald transition-colors"
-          >
-            <ImagePlus className="w-4 h-4" />
-            {t.scanSky}
-          </button>
+          />
+          {/* Same photo, no fusion: the network's estimate on its own. Ghost
+              styling because the fused result is the one to trust by default. */}
+          <SwapAction
+            label={t.scanNnOnly}
+            variant="ghost"
+            title={t.nnOnlyHint}
+            onClick={(e) => {
+              e.stopPropagation();
+              pick(true);
+            }}
+          />
         </div>
 
-        <div className="relative z-10 mt-6 flex items-center gap-2 text-xs text-emerald-100/50">
-          <Sparkles className="w-3.5 h-3.5" />
-          PNG · JPG · HEIC · webcam
-        </div>
-      </motion.div>
+        <div className="mt-5 max-w-xs text-[11px] leading-relaxed text-white/30">{t.nnOnlyHint}</div>
+      </div>
     </div>
   );
 }

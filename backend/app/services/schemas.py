@@ -20,7 +20,34 @@ class WeatherData(BaseModel):
     humidity: float  # percentage
     wind_speed: float  # m/s
     pressure: float  # hPa
-    
+
+    # Both come free with the same OpenWeather response and are only consumed by
+    # the explanation service: wind direction says which way pollution is being
+    # carried from, and the place name anchors reasoning about local sources.
+    # Optional so fusion, which ignores them, is unaffected when absent.
+    wind_deg: Optional[float] = None
+    place: Optional[str] = None
+
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+class UserOut(BaseModel):
+    id: int
+    username: str
+    created_at: str
+    is_admin: bool = False
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: Literal["bearer"] = "bearer"
+    expires_in: int  # seconds
+    user: UserOut
+
 class FusionResult(BaseModel):
     aqi_score: int
     status_text: str

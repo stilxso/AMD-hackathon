@@ -5,9 +5,10 @@ import mapboxgl from "mapbox-gl";
 // mapbox-gl.css is imported globally in app/globals.css — importing it here
 // instead would ship it inside this component's on-demand chunk, so it can
 // arrive after the map already initialized (canvas sizes/positions wrong).
-import { MapPinned, KeyRound, Radio, Loader2 } from "lucide-react";
-import type { Coords, Station, StationsResponse } from "@/types";
+import { AlertTriangle } from "lucide-react";
+import type { Coords, GridPoint, SourceHealth, Station, StationsResponse } from "@/types";
 import { useI18n } from "@/lib/i18n";
+import { ALARM, AQI_GRADIENT } from "@/lib/utils";
 
 type Props = {
   coords: Coords;
@@ -15,16 +16,24 @@ type Props = {
 };
 
 const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
-const RADIUS_KM = 50;
 
-// AQI color stops shared by the heatmap gradient, station dots and legend.
+// The fetched box is grown beyond the viewport so small pans reuse it instead
+// of hitting the API, and so the field's own rectangular edge stays off-screen.
+const BBOX_PAD = 0.35;
+// Long enough that a flyTo or a drag settles first — otherwise every
+// intermediate frame of a pan queues its own request.
+const REFETCH_DEBOUNCE_MS = 350;
+
+// AQI stops shared by the field, station dots and legend. Severity reads as
+// density here, not hue — see aqiTone. The two must stay in step, or the map
+// and the readout will disagree about the same air.
 const AQI_STEPS: Array<[number, string]> = [
-  [0, "#34d399"],
-  [50, "#facc15"],
-  [100, "#fb923c"],
-  [150, "#f87171"],
-  [200, "#e879f9"],
-  [300, "#e11d48"],
+  [0, "#6f6f6f"],
+  [50, "#9c9c9c"],
+  [100, "#cfcfcf"],
+  [150, "#ffffff"],
+  [200, ALARM],
+  [300, "#ff1f10"],
 ];
 
 const EMPTY: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
@@ -47,39 +56,192 @@ function toGeoJSON(stations: Station[]): GeoJSON.FeatureCollection {
   };
 }
 
+type Bbox = { minLat: number; minLng: number; maxLat: number; maxLng: number };
+
+/** The legend gradient as numbers, so the field and the legend cannot drift. */
+const AQI_RAMP: Array<[number, [number, number, number]]> = AQI_STEPS.map(([v, hex]) => [
+  v,
+  [
+    parseInt(hex.slice(1, 3), 16),
+    parseInt(hex.slice(3, 5), 16),
+    parseInt(hex.slice(5, 7), 16),
+  ],
+]);
+
+function rampColor(aqi: number): [number, number, number] {
+  if (aqi <= AQI_RAMP[0][0]) return AQI_RAMP[0][1];
+  for (let i = 1; i < AQI_RAMP.length; i++) {
+    const [v1, c1] = AQI_RAMP[i];
+    const [v0, c0] = AQI_RAMP[i - 1];
+    if (aqi <= v1) {
+      const t = (aqi - v0) / (v1 - v0);
+      return [
+        Math.round(c0[0] + (c1[0] - c0[0]) * t),
+        Math.round(c0[1] + (c1[1] - c0[1]) * t),
+        Math.round(c0[2] + (c1[2] - c0[2]) * t),
+      ];
+    }
+  }
+  return AQI_RAMP[AQI_RAMP.length - 1][1];
+}
+
+// A 1×1 transparent PNG. An image source must be created with a url, but the
+// first field is not built until a fetch resolves.
+const BLANK_PNG =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+/**
+ * The modelled field as one continuous raster covering the whole sampled box.
+ *
+ * Drawing a polygon per cell — the previous approach — turned the field into a
+ * mosaic of hard-edged squares with a visible seam at every boundary, and left
+ * everything outside the fetched patch bare. Pollution does not have edges at
+ * 0.1° intervals, and the tiling was the main thing making the layer hard to
+ * read.
+ *
+ * So the samples go into a canvas one pixel per cell and are interpolated up.
+ * Colour is still taken directly from the value, never from geometry density,
+ * so the legend means exactly what it says at every zoom.
+ */
+type Quad = [[number, number], [number, number], [number, number], [number, number]];
+
+function buildField(grid: GridPoint[], cellDeg: number): { url: string; coordinates: Quad } | null {
+  if (grid.length === 0 || !(cellDeg > 0)) return null;
+
+  // Snap to lattice indices: Open-Meteo answers with its own cell centres
+  // (43.40001, not 43.4), so raw values cannot be compared for equality.
+  const rowOf = grid.map((p) => Math.round(p.lat / cellDeg));
+  const colOf = grid.map((p) => Math.round(p.lng / cellDeg));
+  const minRow = Math.min(...rowOf);
+  const maxRow = Math.max(...rowOf);
+  const minCol = Math.min(...colOf);
+  const maxCol = Math.max(...colOf);
+  const rows = maxRow - minRow + 1;
+  const cols = maxCol - minCol + 1;
+  if (rows < 2 || cols < 2) return null;
+
+  const cells = new Float32Array(rows * cols).fill(NaN);
+  grid.forEach((p, i) => {
+    // Row 0 is the northern edge — canvas y grows downward.
+    cells[(maxRow - rowOf[i]) * cols + (colOf[i] - minCol)] = p.aqi;
+  });
+
+  // Upstream occasionally drops a coordinate. Filling with the mean keeps the
+  // interpolation continuous instead of punching a black hole in the field.
+  const present = grid.reduce((sum, p) => sum + p.aqi, 0) / grid.length;
+  for (let i = 0; i < cells.length; i++) if (Number.isNaN(cells[i])) cells[i] = present;
+
+  const small = document.createElement("canvas");
+  small.width = cols;
+  small.height = rows;
+  const sctx = small.getContext("2d");
+  if (!sctx) return null;
+  const img = sctx.createImageData(cols, rows);
+  for (let i = 0; i < cells.length; i++) {
+    const [r, g, b] = rampColor(cells[i]);
+    img.data[i * 4] = r;
+    img.data[i * 4 + 1] = g;
+    img.data[i * 4 + 2] = b;
+    // Opaque here; the layer's raster-opacity does the blending. Interpolating
+    // a varying alpha channel would fringe the colours at the transitions.
+    img.data[i * 4 + 3] = 255;
+  }
+  sctx.putImageData(img, 0, 0);
+
+  // Upscaled with canvas smoothing rather than left to the GPU's sampler: it
+  // makes the interpolation explicit and independent of how the renderer
+  // happens to filter a texture this small.
+  const scale = Math.max(4, Math.min(48, Math.round(768 / Math.max(rows, cols))));
+  const out = document.createElement("canvas");
+  out.width = cols * scale;
+  out.height = rows * scale;
+  const octx = out.getContext("2d");
+  if (!octx) return null;
+  octx.imageSmoothingEnabled = true;
+  octx.imageSmoothingQuality = "high";
+  octx.drawImage(small, 0, 0, out.width, out.height);
+
+  // The samples are cell centres, so the image spans half a cell past the
+  // outermost ones. Corner order is TL, TR, BR, BL.
+  const west = (minCol - 0.5) * cellDeg;
+  const east = (maxCol + 0.5) * cellDeg;
+  const north = (maxRow + 0.5) * cellDeg;
+  const south = (minRow - 0.5) * cellDeg;
+
+  return {
+    url: out.toDataURL("image/png"),
+    coordinates: [
+      [west, north],
+      [east, north],
+      [east, south],
+      [west, south],
+    ],
+  };
+}
+
 export default function MapView({ coords, aqi }: Props) {
   const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markerRef = useRef<mapboxgl.Marker | null>(null);
+  const moveTimerRef = useRef<number | undefined>(undefined);
+  const coveredRef = useRef<{ box: Bbox; zoom: number } | null>(null);
   const [stations, setStations] = useState<Station[]>([]);
+  const [grid, setGrid] = useState<GridPoint[]>([]);
+  // Reported by the backend rather than assumed: a wide viewport is sampled
+  // coarser than the model's native lattice, and the field is drawn at
+  // whatever spacing was actually used.
+  const [cellDeg, setCellDeg] = useState(0.1);
+  const [sources, setSources] = useState<SourceHealth[]>([]);
   const [loading, setLoading] = useState(false);
+  // A failed fetch used to be indistinguishable from a clean, unmonitored area:
+  // the catch below emptied the readings and the badge then read "modelled".
+  const [error, setError] = useState<string | null>(null);
+  // The box currently being covered. Set from the map's own bounds, so the data
+  // spans everything on screen instead of a fixed radius around the user.
+  const [bbox, setBbox] = useState<Bbox | null>(null);
 
-  // ---- fetch real readings whenever the position changes ----
+  // ---- fetch readings for whatever the map is showing ----
   useEffect(() => {
+    if (!bbox) return;
     const ctrl = new AbortController();
     setLoading(true);
-    fetch(
-      `/api/v1/stations?latitude=${coords.latitude}&longitude=${coords.longitude}&radius_km=${RADIUS_KM}`,
-      { signal: ctrl.signal },
-    )
+    setError(null);
+    // latitude/longitude still identify the user's point — station distances
+    // and the /feed/geo lookup are relative to it — while the box says how much
+    // ground to cover.
+    const qs = new URLSearchParams({
+      latitude: String(coords.latitude),
+      longitude: String(coords.longitude),
+      min_lat: bbox.minLat.toFixed(4),
+      min_lng: bbox.minLng.toFixed(4),
+      max_lat: bbox.maxLat.toFixed(4),
+      max_lng: bbox.maxLng.toFixed(4),
+    });
+    fetch(`/api/v1/stations?${qs}`, { signal: ctrl.signal })
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json() as Promise<StationsResponse>;
       })
       .then((d) => {
         setStations(d.stations);
+        setGrid(d.grid ?? []);
+        if (d.gridCellDeg) setCellDeg(d.gridCellDeg);
+        setSources(d.sources ?? []);
         setLoading(false);
       })
       .catch((e) => {
-        // An abort means a newer position superseded this request — the newer
+        // An abort means a newer viewport superseded this request — the newer
         // one owns the loading state, so leave it alone.
         if (e.name === "AbortError") return;
         setStations([]);
+        setGrid([]);
+        setSources([]);
+        setError(e instanceof Error ? e.message : "request failed");
         setLoading(false);
       });
     return () => ctrl.abort();
-  }, [coords.latitude, coords.longitude]);
+  }, [bbox, coords.latitude, coords.longitude]);
 
   // ---- init map once ----
   useEffect(() => {
@@ -98,33 +260,49 @@ export default function MapView({ coords, aqi }: Props) {
     map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), "top-right");
 
     map.on("load", () => {
+      map.addSource("grid", {
+        type: "image",
+        url: BLANK_PNG,
+        coordinates: [
+          [-1, 1],
+          [1, 1],
+          [1, -1],
+          [-1, -1],
+        ],
+      });
       map.addSource("stations", { type: "geojson", data: EMPTY });
 
-      // Heatmap: measured AQI spread across the local network.
-      map.addLayer({
-        id: "stations-heat",
-        type: "heatmap",
-        source: "stations",
-        paint: {
-          "heatmap-weight": ["interpolate", ["linear"], ["get", "aqi"], 0, 0, 300, 1],
-          "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 8, 1, 14, 3.2],
-          "heatmap-color": [
-            "interpolate",
-            ["linear"],
-            ["heatmap-density"],
-            0, "rgba(6,20,13,0)",
-            0.2, "rgba(16,185,129,0.55)",
-            0.4, "rgba(250,204,21,0.65)",
-            0.6, "rgba(251,146,60,0.75)",
-            0.8, "rgba(248,113,113,0.85)",
-            1, "rgba(225,29,72,0.92)",
-          ],
-          // Real monitors are far sparser than the old generated scatter, so
-          // the influence radius has to be much wider to read as a field.
-          "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 8, 40, 14, 110],
-          "heatmap-opacity": 0.75,
+      // Pollution field, as one interpolated raster over the sampled box.
+      //
+      // A heatmap layer was the wrong primitive here. Its colour is driven by
+      // `heatmap-density` — how much weighted geometry piles up under a pixel —
+      // not by the value itself. Over scattered monitors that conflates "many
+      // stations" with "dirty air", and over a lattice it depends on the blur
+      // radius, so the same concentration renders differently at each zoom.
+      //
+      // A polygon per cell fixed the colour but not the readability: it tiled
+      // the map with hard-edged squares and stopped at the edge of one small
+      // patch. The raster keeps colour tied directly to value while covering
+      // everything on screen continuously. See buildField.
+      //
+      // Slotted beneath the basemap's first symbol layer so place names and
+      // road labels stay legible through it.
+      const firstSymbol = map.getStyle()?.layers?.find((l) => l.type === "symbol")?.id;
+      map.addLayer(
+        {
+          id: "grid-field",
+          source: "grid",
+          type: "raster",
+          paint: {
+            "raster-opacity": 0.55,
+            // Cross-fading between the old and new image on every viewport
+            // change reads as a flicker.
+            "raster-fade-duration": 0,
+            "raster-resampling": "linear",
+          },
         },
-      });
+        firstSymbol,
+      );
 
       // One dot per real reading. Unlike the generated field these are few and
       // meaningful, so they stay visible at every zoom level.
@@ -170,7 +348,7 @@ export default function MapView({ coords, aqi }: Props) {
         popup
           .setLngLat(geom.coordinates)
           .setHTML(
-            `<div style="font-family:system-ui;color:#0b3b26;font-size:12px;max-width:220px">
+            `<div style="font-family:system-ui;color:#fff;font-size:12px;max-width:220px">
                <div style="font-weight:600;margin-bottom:2px">${p.name}</div>
                <div>${t.aqi} <strong>${p.aqi}</strong> · PM2.5 ${p.pm25} µg/m³</div>
                <div style="opacity:.65;margin-top:2px">${origin}</div>
@@ -184,16 +362,62 @@ export default function MapView({ coords, aqi }: Props) {
       });
 
       placeMarker(map);
+      syncViewport(map);
       // Readings are pushed by the [stations] effect below — it re-runs on
       // "load" when the fetch resolves before the style is ready.
     });
 
+    const onMoveEnd = () => {
+      window.clearTimeout(moveTimerRef.current);
+      moveTimerRef.current = window.setTimeout(() => syncViewport(map), REFETCH_DEBOUNCE_MS);
+    };
+    map.on("moveend", onMoveEnd);
+
     return () => {
+      window.clearTimeout(moveTimerRef.current);
+      map.off("moveend", onMoveEnd);
       map.remove();
       mapRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /**
+   * Ask for a new box only when the current one no longer covers the screen.
+   *
+   * Every pan and zoom would otherwise re-request an almost identical field.
+   * The stored box is padded, so nudging the map around reuses it; escaping it
+   * — or changing zoom enough to change the sampling resolution — refetches.
+   */
+  function syncViewport(map: mapboxgl.Map) {
+    const b = map.getBounds();
+    if (!b) return;
+    const zoom = Math.round(map.getZoom());
+    const covered = coveredRef.current;
+    if (
+      covered &&
+      covered.zoom === zoom &&
+      b.getSouth() >= covered.box.minLat &&
+      b.getWest() >= covered.box.minLng &&
+      b.getNorth() <= covered.box.maxLat &&
+      b.getEast() <= covered.box.maxLng
+    ) {
+      return;
+    }
+
+    const padLat = (b.getNorth() - b.getSouth()) * BBOX_PAD;
+    const padLng = (b.getEast() - b.getWest()) * BBOX_PAD;
+    const box: Bbox = {
+      minLat: Math.max(-85, b.getSouth() - padLat),
+      minLng: Math.max(-180, b.getWest() - padLng),
+      maxLat: Math.min(85, b.getNorth() + padLat),
+      maxLng: Math.min(180, b.getEast() + padLng),
+    };
+    if (box.minLat >= box.maxLat || box.minLng >= box.maxLng) return;
+
+    coveredRef.current = { box, zoom };
+    setBbox(box);
+  }
 
   function placeMarker(map: mapboxgl.Map) {
     const el = document.createElement("div");
@@ -203,7 +427,7 @@ export default function MapView({ coords, aqi }: Props) {
       .setLngLat([coords.longitude, coords.latitude])
       .setPopup(
         new mapboxgl.Popup({ offset: 18 }).setHTML(
-          `<div style="font-family:system-ui;color:#0b3b26">
+          `<div style="font-family:system-ui;color:#fff">
              <div style="font-weight:600">${t.yourLocation}</div>
              ${aqi != null ? `<div style="font-size:12px;margin-top:2px">${t.aqi} <strong>${aqi}</strong></div>` : ""}
              <div style="font-family:ui-monospace,monospace;font-size:12px;margin-top:2px">${coords.latitude.toFixed(
@@ -239,8 +463,22 @@ export default function MapView({ coords, aqi }: Props) {
     // Retrying on sourcedata covers both orderings.
     const apply = () => {
       const src = map.getSource("stations") as mapboxgl.GeoJSONSource | undefined;
-      if (!src) return false;
+      const gridSrc = map.getSource("grid") as mapboxgl.ImageSource | undefined;
+      // The layer check matters as much as the sources: addSource can emit
+      // sourcedata before the "load" handler has reached addLayer, and
+      // setLayoutProperty on a layer that does not exist yet throws.
+      if (!src || !gridSrc || !map.getLayer("grid-field")) return false;
       src.setData(toGeoJSON(stations) as never);
+
+      const field = buildField(grid, cellDeg);
+      if (field) {
+        gridSrc.updateImage({ url: field.url, coordinates: field.coordinates });
+        map.setLayoutProperty("grid-field", "visibility", "visible");
+      } else {
+        // No usable field. Hiding the layer leaves the last image in place but
+        // off-screen-invisible, rather than stretching stale data over the map.
+        map.setLayoutProperty("grid-field", "visibility", "none");
+      }
       return true;
     };
     if (apply()) return;
@@ -251,19 +489,16 @@ export default function MapView({ coords, aqi }: Props) {
     return () => {
       map.off("sourcedata", retry);
     };
-  }, [stations]);
+  }, [stations, grid, cellDeg]);
 
   if (!TOKEN) {
     return (
-      <div className="relative w-full h-full min-h-[360px] lg:min-h-[560px] glass overflow-hidden flex items-center justify-center p-6">
-        <div className="pointer-events-none absolute inset-0 cyber-grid-bg opacity-40 animate-grid-drift" />
+      <div className="relative flex h-full min-h-[360px] w-full items-center justify-center overflow-hidden border border-white/10 p-6 lg:min-h-[560px]">
+        <div aria-hidden className="lp-lattice pointer-events-none absolute inset-0 opacity-70" />
         <div className="relative z-10 max-w-sm text-center">
-          <div className="mx-auto w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-400/30 flex items-center justify-center animate-pulse-glow">
-            <KeyRound className="w-6 h-6 text-emerald-300" />
-          </div>
-          <div className="mt-4 text-white font-medium">{t.mapTokenMissing}</div>
-          <p className="mt-2 text-emerald-100/65 text-sm">{t.mapTokenHint}</p>
-          <code className="mt-3 inline-block text-[11px] font-mono text-emerald-200/80 bg-black/30 px-2 py-1 rounded-lg">
+          <div className="lp-mono text-white/70">{t.mapTokenMissing}</div>
+          <p className="mt-3 text-sm leading-relaxed text-white/40">{t.mapTokenHint}</p>
+          <code className="mt-4 inline-block border border-white/15 px-2 py-1 font-mono text-[11px] text-white/70">
             NEXT_PUBLIC_MAPBOX_TOKEN=pk.…
           </code>
         </div>
@@ -272,52 +507,78 @@ export default function MapView({ coords, aqi }: Props) {
   }
 
   const sensorCount = stations.filter((s) => s.kind === "sensor").length;
+  // Only genuinely broken sources are worth the user's attention. "disabled"
+  // (no key configured) and "empty" (nothing to report here) are expected states.
+  const brokenSources = sources.filter(
+    (s) => s.status === "unauthorized" || s.status === "error",
+  );
 
   return (
-    <div className="relative w-full h-full min-h-[360px] lg:min-h-[560px] rounded-2xl overflow-hidden border border-white/10">
+    <div className="relative h-full min-h-[360px] w-full overflow-hidden border border-white/10 lg:min-h-[560px]">
       <div ref={containerRef} className="absolute inset-0" />
 
       {/* live location badge */}
-      <div className="pointer-events-none absolute top-3 left-3 z-[5] glass px-2.5 py-1.5 flex items-center gap-2 text-[11px] text-emerald-100/85">
-        <MapPinned className="w-3.5 h-3.5 text-emerald-300" />
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-glow-emerald animate-pulse" />
+      <div className="lp-mono pointer-events-none absolute left-3 top-3 z-[5] flex items-center gap-2 border border-white/15 bg-black/70 px-2.5 py-1.5 text-white/75 backdrop-blur-md">
+        <span className="h-1 w-1 animate-pulse rounded-full bg-white" />
         {t.locationLive}
       </div>
 
       {/* what the dots actually are — sensor count vs modelled fallback */}
-      <div className="pointer-events-none absolute top-3 left-1/2 -translate-x-1/2 z-[5] glass px-2.5 py-1.5 flex items-center gap-2 text-[11px] text-emerald-100/85">
+      <div className="lp-mono pointer-events-none absolute left-1/2 top-3 z-[5] flex -translate-x-1/2 items-center gap-2 border border-white/15 bg-black/70 px-2.5 py-1.5 text-white/75 backdrop-blur-md">
         {loading ? (
           <>
-            <Loader2 className="w-3.5 h-3.5 text-emerald-300 animate-spin" />
+            <span className="h-3 w-3 animate-spin rounded-full border border-white/25 border-t-white" />
             {t.stationsLoading}
+          </>
+        ) : error ? (
+          <>
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" style={{ color: ALARM }} />
+            <span style={{ color: ALARM }}>
+              {t.stationsFailed} · {error}
+            </span>
           </>
         ) : (
           <>
-            <Radio className="w-3.5 h-3.5 text-emerald-300" />
-            {sensorCount > 0
-              ? `${sensorCount} ${t.stationsNearby}`
-              : t.stationsModelled}
+            <span className="h-1 w-1 rounded-full bg-white/70" />
+            {sensorCount > 0 ? `${sensorCount} ${t.stationsNearby}` : t.stationsModelled}
+            {grid.length > 0 && (
+              <span className="text-white/40">· {grid.length} {t.gridCells}</span>
+            )}
           </>
         )}
       </div>
 
+      {/* Degraded upstreams. Without this a dead API key is indistinguishable
+          from a genuinely clean, unmonitored area. */}
+      {!loading && brokenSources.length > 0 && (
+        <div className="absolute left-1/2 top-14 z-[5] max-w-[min(90%,20rem)] -translate-x-1/2 border border-white/20 bg-black/80 px-3 py-2 backdrop-blur-md">
+          <div className="lp-mono flex items-center gap-2" style={{ color: ALARM }}>
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            {t.sourcesDegraded}
+          </div>
+          <ul className="mt-2 space-y-1 text-[11px] text-white/50">
+            {brokenSources.map((s) => (
+              <li key={s.name}>
+                <span className="font-mono text-white/70">{s.name}</span>: {s.status}
+                {s.detail ? ` — ${s.detail}` : ""}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* pollution legend */}
-      <div className="absolute bottom-3 left-3 z-[5] glass px-3 py-2">
-        <div className="text-[10px] uppercase tracking-widest text-emerald-100/60 mb-1.5">{t.pollutionLayer}</div>
-        <div
-          className="h-2 w-40 rounded-full"
-          style={{
-            background: "linear-gradient(90deg,#34d399,#facc15,#fb923c,#f87171,#e879f9,#e11d48)",
-          }}
-        />
-        <div className="mt-1 flex justify-between text-[10px] text-emerald-100/60">
+      <div className="absolute bottom-3 left-3 z-[5] border border-white/15 bg-black/70 px-3 py-2.5 backdrop-blur-md">
+        <div className="lp-mono mb-2 text-white/45">{t.pollutionLayer}</div>
+        <div className="h-1.5 w-40" style={{ background: AQI_GRADIENT }} />
+        <div className="lp-mono mt-1.5 flex justify-between text-white/45">
           <span>{t.low}</span>
           <span>{t.high}</span>
         </div>
       </div>
 
-      {/* subtle green vignette — kept light so the basemap stays legible */}
-      <div className="pointer-events-none absolute inset-0 rounded-2xl shadow-[inset_0_0_60px_rgba(6,20,13,0.4)]" />
+      {/* vignette — pulls the basemap's edges back into the page's black */}
+      <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_80px_rgba(0,0,0,0.75)]" />
     </div>
   );
 }

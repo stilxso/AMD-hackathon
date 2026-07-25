@@ -24,6 +24,14 @@ class Settings(BaseSettings):
     openaq_api_key: str = ""
     openweather_api_key: str = ""
 
+    # Gemini generates the "why is pollution at this level" explanation. Empty
+    # disables /explain with a clear 503 rather than breaking startup.
+    gemini_api_key: str = ""
+    # gemini-2.5-flash is still listed by ListModels but generateContent returns
+    # 404 "no longer available to new users" — verify a model actually answers
+    # before setting it here, the listing alone is not enough.
+    gemini_model: str = "gemini-3.6-flash"
+
     # ── ML model ─────────────────────────────────────────────────────
     model_path: str = "fineweights.pt"
 
@@ -43,6 +51,26 @@ class Settings(BaseSettings):
     # Only the small regression head is re-run, so this is cheap.
     mc_dropout_samples: int = 20
 
+    # ── Auth ─────────────────────────────────────────────────────────
+    # HS256 signing key for access tokens. Empty means "generate a random key
+    # at startup", so sessions survive only until the process restarts. Set a
+    # long random value in .env for anything beyond local development.
+    jwt_secret: str = ""
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 60 * 24 * 7  # 7 days
+
+    # SQLite file holding the users table, relative to the backend/ directory.
+    db_path: str = "airq.db"
+
+    # Demo account seeded at startup when missing. Set demo_password to an
+    # empty string to skip seeding.
+    demo_username: str = "admin"
+    demo_password: str = "doniponi228"
+
+    # Comma-separated usernames granted the admin UI. Empty falls back to the
+    # seeded demo account, so a stock dev setup has exactly one admin.
+    admin_usernames: str = ""
+
     # ── Server ───────────────────────────────────────────────────────
     host: str = "0.0.0.0"
     port: int = 8000
@@ -61,6 +89,23 @@ class Settings(BaseSettings):
         """Resolve model_path relative to the backend/ directory."""
         base = Path(__file__).resolve().parent.parent  # backend/
         return (base / self.model_path).resolve()
+
+    @property
+    def db_abs_path(self) -> Path:
+        """Resolve db_path relative to the backend/ directory."""
+        base = Path(__file__).resolve().parent.parent  # backend/
+        return (base / self.db_path).resolve()
+
+    @property
+    def admin_username_set(self) -> set[str]:
+        """
+        Usernames that get the admin UI, lowercased.
+
+        users.username is UNIQUE COLLATE NOCASE, so "Admin" and "admin" are the
+        same account — the admin check has to agree with that.
+        """
+        raw = self.admin_usernames or self.demo_username
+        return {u.strip().lower() for u in raw.split(",") if u.strip()}
 
     @property
     def cors_origin_list(self) -> list[str]:
