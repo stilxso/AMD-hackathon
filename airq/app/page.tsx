@@ -12,7 +12,6 @@ import { ResultsCard } from "@/components/ResultsCard";
 import { LocationFallback } from "@/components/LocationFallback";
 import { MapSkeleton } from "@/components/MapSkeleton";
 import { useI18n } from "@/lib/i18n";
-import { makeDemoImage } from "@/lib/demoImage";
 import type { AnalyzeResponse, Coords, PresetLocation } from "@/types";
 
 // CRITICAL: dynamic import with ssr:false so mapbox-gl never touches window server-side.
@@ -22,8 +21,6 @@ const MapView = dynamic(() => import("@/components/MapView"), {
 });
 
 type Phase = "idle" | "locating" | "scanning" | "done" | "error";
-
-const DEMO_COORDS: Coords = { latitude: 43.2389, longitude: 76.8897 };
 
 export default function Page() {
   const { t } = useI18n();
@@ -61,7 +58,7 @@ export default function Page() {
       () => {
         setLocStatus((s) => (s === "granted" ? s : "denied"));
         // Only surface the manual picker while still on the capture screen —
-        // never yank it back up once the user has a scan / demo in flight.
+        // never yank it back up once the user has a scan in flight.
         setPhase((p) => {
           if (p === "idle") setNeedsFallback(true);
           return p;
@@ -136,17 +133,6 @@ export default function Page() {
     }
   }
 
-  function handleDemo() {
-    setNeedsFallback(false);
-    setCoords(DEMO_COORDS);
-    // Locally generated haze image — no network, works offline / on stage.
-    // Synchronous so the whole transition happens in one React tick.
-    const { file: f, url } = makeDemoImage();
-    setFile(f);
-    setImageUrl(url);
-    runAnalysis(f, DEMO_COORDS);
-  }
-
   function handleFallbackPick(loc: PresetLocation) {
     setCoords(loc.coords);
     setNeedsFallback(false);
@@ -195,7 +181,7 @@ export default function Page() {
               >
                 {phase === "idle" && (
                   <>
-                    <UploadDropzone onFile={handleFile} onDemo={handleDemo} />
+                    <UploadDropzone onFile={handleFile} />
                     {needsFallback && <LocationFallback onPick={handleFallbackPick} />}
                   </>
                 )}

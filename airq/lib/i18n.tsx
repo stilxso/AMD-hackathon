@@ -9,7 +9,6 @@ type Dict = {
   tagline: string;
   scanSky: string;
   uploadPrompt: string;
-  demoLoad: string;
   chooseAnother: string;
   reset: string;
   locationRequest: string;
@@ -30,6 +29,10 @@ type Dict = {
   mapTitle: string;
   locationLive: string;
   pollutionLayer: string;
+  stationsNearby: string;
+  stationsModelled: string;
+  stationsLoading: string;
+  modelled: string;
   low: string;
   high: string;
   mapTokenMissing: string;
@@ -52,7 +55,6 @@ const dictionaries: Record<Lang, Dict> = {
     tagline: "Photograph the sky. Read your air.",
     scanSky: "Scan Sky",
     uploadPrompt: "Drop a photo of the sky, or tap to capture",
-    demoLoad: "Demo Load",
     chooseAnother: "Choose another photo",
     reset: "New scan",
     locationRequest: "Requesting your location…",
@@ -79,6 +81,10 @@ const dictionaries: Record<Lang, Dict> = {
     mapTitle: "Live map",
     locationLive: "Live location",
     pollutionLayer: "Pollution density",
+    stationsNearby: "stations nearby",
+    stationsModelled: "Modelled coverage",
+    stationsLoading: "Loading readings…",
+    modelled: "modelled",
     low: "Low",
     high: "High",
     mapTokenMissing: "Mapbox token required",
@@ -99,7 +105,6 @@ const dictionaries: Record<Lang, Dict> = {
     tagline: "Сфотографируйте небо — прочитайте свой воздух.",
     scanSky: "Анализ воздуха",
     uploadPrompt: "Перетащите фото неба или коснитесь, чтобы сделать снимок",
-    demoLoad: "Демо-загрузка",
     chooseAnother: "Выбрать другое фото",
     reset: "Новый анализ",
     locationRequest: "Определяем ваше местоположение…",
@@ -126,6 +131,10 @@ const dictionaries: Record<Lang, Dict> = {
     mapTitle: "Живая карта",
     locationLive: "Геолокация в реальном времени",
     pollutionLayer: "Плотность загрязнения",
+    stationsNearby: "станций рядом",
+    stationsModelled: "Модельные данные",
+    stationsLoading: "Загрузка данных…",
+    modelled: "модель",
     low: "Низкое",
     high: "Высокое",
     mapTokenMissing: "Требуется токен Mapbox",
@@ -146,7 +155,6 @@ const dictionaries: Record<Lang, Dict> = {
     tagline: "Аспанды суретке түсіріңіз — ауаны оқыңыз.",
     scanSky: "Ауаны талдау",
     uploadPrompt: "Аспан суретін тастаңыз немесе түсіру үшін басыңыз",
-    demoLoad: "Демо жүктеу",
     chooseAnother: "Басқа сурет таңдау",
     reset: "Жаңа талдау",
     locationRequest: "Орналасқан жеріңізді анықтап жатырмыз…",
@@ -173,6 +181,10 @@ const dictionaries: Record<Lang, Dict> = {
     mapTitle: "Тірі карта",
     locationLive: "Нақты уақыттағы орналасу",
     pollutionLayer: "Ластану тығыздығы",
+    stationsNearby: "станция жақын",
+    stationsModelled: "Модельдік деректер",
+    stationsLoading: "Деректер жүктелуде…",
+    modelled: "модель",
     low: "Төмен",
     high: "Жоғары",
     mapTokenMissing: "Mapbox токені қажет",

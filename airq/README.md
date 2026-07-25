@@ -121,7 +121,7 @@ translated. Toggle sits in the top-right header.
 
 ```
 app/
-  api/analyze/route.ts   # mock backend (3–4 s delay, realistic response)
+  api/analyze/route.ts 
   layout.tsx             # theme + i18n provider
   page.tsx               # single-page flow (capture / scan / verdict)
   globals.css            # theme tokens + map overrides + pin animation

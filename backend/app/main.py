@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.api.v1 import analyze
+from app.api.v1 import analyze, stations
 
 logger = logging.getLogger("airq")
 
@@ -62,7 +62,8 @@ def create_app() -> FastAPI:
         description=(
             "Upload a sky / landscape photo and get a PM2.5-based AQI score. "
             "Combines EfficientNet-B0 vision inference with real-time station "
-            "data (WAQI, OpenAQ) and weather context (OpenWeatherMap)."
+            "data (WAQI, OpenAQ), global modelled coverage (Open-Meteo CAMS, "
+            "OpenWeather Air Pollution) and weather context (OpenWeatherMap)."
         ),
         version="0.1.0",
         lifespan=lifespan,
@@ -91,6 +92,7 @@ def create_app() -> FastAPI:
 
     # ── Mount API router ─────────────────────────────────────────────
     app.include_router(analyze.router, prefix="/api/v1")
+    app.include_router(stations.router, prefix="/api/v1")
 
     return app
 

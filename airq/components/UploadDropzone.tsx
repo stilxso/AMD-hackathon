@@ -1,18 +1,17 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { Camera, ImagePlus, Sparkles, Wand2 } from "lucide-react";
+import { Camera, ImagePlus, Sparkles } from "lucide-react";
 import { motion } from "framer-motion";
 import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 type Props = {
   onFile: (file: File, previewUrl: string) => void;
-  onDemo: () => void;
   disabled?: boolean;
 };
 
-export function UploadDropzone({ onFile, onDemo, disabled }: Props) {
+export function UploadDropzone({ onFile, disabled }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [hover, setHover] = useState(false);
   const { t } = useI18n();
@@ -97,18 +96,6 @@ export function UploadDropzone({ onFile, onDemo, disabled }: Props) {
           >
             <ImagePlus className="w-4 h-4" />
             {t.scanSky}
-          </button>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDemo();
-            }}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-emerald-100 transition-colors"
-            title="Bypass camera + GPS with a preset Almaty haze photo"
-          >
-            <Wand2 className="w-4 h-4 text-emerald-300" />
-            {t.demoLoad}
           </button>
         </div>
 

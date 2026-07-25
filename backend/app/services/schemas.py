@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Literal, Optional
 from pydantic import BaseModel
 
 class StationData(BaseModel):
@@ -7,8 +7,14 @@ class StationData(BaseModel):
     pm25: float
     distance_km: float
     name: str
-    source: str  # "waqi" or "openaq"
-    
+    source: str  # "waqi" | "openaq" | "open-meteo" | "openweather"
+
+    # "sensor" is a physical monitor at (lat, lng). "model" is a reanalysis grid
+    # value interpolated to the query point — it always resolves, which is what
+    # gives global coverage, but its distance_km is ~0 by construction and says
+    # nothing about measurement proximity. Fusion treats the two differently.
+    kind: Literal["sensor", "model"] = "sensor"
+
 class WeatherData(BaseModel):
     temp_c: float
     humidity: float  # percentage

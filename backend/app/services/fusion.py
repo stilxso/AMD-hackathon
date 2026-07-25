@@ -20,8 +20,22 @@ _WIND_REFERENCE: float = 3.0         # m/s – typical mixing conditions
 _SIGMOID_K: float = 0.5              # steepness of the logistic curve
 _SIGMOID_D0: float = 5.0             # km – midpoint (equal AI / station trust)
 _STATION_RADIUS_KM: float = 50.0     # max station range for IDW
+# Lower bound on the AI weight. Unfloored, the logistic term drops to ~0.08
+# whenever a monitor sits close, so in a well-monitored city the uploaded photo
+# moved the result barely at all and every scan returned roughly the station
+# reading. The floor keeps the vision estimate materially represented at any
+# distance while still letting nearby monitors carry the majority.
+_AI_WEIGHT_FLOOR: float = 0.35
 _IDW_POWER: float = 2.0              # inverse-distance weighting exponent
 _IDW_MIN_DIST: float = 0.1           # km – prevents division by zero
+
+# Weight given to the AI estimate when only modelled (reanalysis) data is
+# available. A model value sits on the query coordinate, so routing it through
+# _sigmoid_ai_weight would score it d≈0 — the "monitor in the same street"
+# case — and suppress the vision model to ~8%. It deserves neither that trust
+# nor none at all: it is an independent estimate on an ~11 km grid that cannot
+# see local sources, so the two are weighted equally.
+_MODEL_AI_WEIGHT: float = 0.5
 
 # Confidence model
 _CONF_HUMIDITY_BETA: float = 0.005   # confidence decay per excess %RH
@@ -39,31 +53,45 @@ _CONF_MAX: float = 0.95
 # ──────────────────────────────────────────────────────────────────────────────
 
 
+# EPA PM2.5 breakpoints, May 2024 NAAQS revision: (C_low, C_high, I_low, I_high).
+# The revision lowered the Good ceiling from 12.0 to 9.0 µg/m³ and rescaled the
+# upper categories — the pre-2024 table reported 9.1–12.0 µg/m³ as "Good" when
+# it is now "Moderate".
+_PM25_BREAKPOINTS = [
+    (0.0, 9.0, 0, 50),
+    (9.1, 35.4, 51, 100),
+    (35.5, 55.4, 101, 150),
+    (55.5, 125.4, 151, 200),
+    (125.5, 225.4, 201, 300),
+    (225.5, 325.4, 301, 500),
+]
+
+
 def pm25_to_aqi(pm25: float) -> int:
-    """
-    Calculate US EPA AQI from PM2.5 concentration.
-
-    Uses the breakpoints from EPA's May 2024 PM2.5 NAAQS revision, which
-    lowered the Good ceiling from 12.0 to 9.0 µg/m³ and rescaled the upper
-    categories. The pre-2024 table reported 9.1–12.0 µg/m³ as "Good" when it
-    is now "Moderate".
-    """
-    breakpoints = [
-        (0.0, 9.0, 0, 50),
-        (9.1, 35.4, 51, 100),
-        (35.5, 55.4, 101, 150),
-        (55.5, 125.4, 151, 200),
-        (125.5, 225.4, 201, 300),
-        (225.5, 325.4, 301, 500),
-    ]
-
+    """Calculate US EPA AQI from PM2.5 concentration."""
     pm = round(pm25, 1)
-    for clow, chigh, ilow, ihigh in breakpoints:
+    for clow, chigh, ilow, ihigh in _PM25_BREAKPOINTS:
         if clow <= pm <= chigh:
             return int(round(((ihigh - ilow) / (chigh - clow)) * (pm - clow) + ilow))
 
     if pm > 325.4: return 500
     return 0
+
+
+def aqi_to_pm25(aqi: float) -> float:
+    """
+    Invert the EPA piecewise-linear curve to recover a PM2.5 concentration.
+
+    Needed because some feeds publish only a station's composite AQI. That
+    composite is driven by whichever pollutant scores highest, so when PM2.5 is
+    not the dominant one this over-estimates the particulate concentration.
+    Prefer a directly reported pm25 value whenever a feed offers one.
+    """
+    a = max(0.0, min(500.0, aqi))
+    for clow, chigh, ilow, ihigh in _PM25_BREAKPOINTS:
+        if ilow <= a <= ihigh:
+            return ((chigh - clow) / (ihigh - ilow)) * (a - ilow) + clow
+    return 325.4
 
 def _get_status_text(aqi: int) -> str:
     if aqi <= 50: return "Good"
@@ -138,12 +166,15 @@ def _sigmoid_ai_weight(nearest_distance_km: float) -> float:
 
     w_ai = 1 / (1 + exp(-k · (d − d₀)))
 
-    Close station (d=0)   ⇒  w_ai ≈ 0.08  (trust station)
+    w = max(w_floor, 1 / (1 + exp(-k · (d − d₀))))
+
+    Close station (d=0)   ⇒  w_ai = floor  (station leads, photo still counts)
     Midpoint      (d=d₀)  ⇒  w_ai = 0.50
     d = 10 km             ⇒  w_ai ≈ 0.92  (trust AI)
     Far station   (d→∞)   ⇒  w_ai → 1.00  (station contributes nothing)
     """
     w = 1.0 / (1.0 + math.exp(-_SIGMOID_K * (nearest_distance_km - _SIGMOID_D0)))
+    w = max(_AI_WEIGHT_FLOOR, w)
     logger.debug(
         "[FUSION] sigmoid_ai_weight: nearest_dist=%.2f km | w_ai=%.4f | w_station=%.4f",
         nearest_distance_km, w, 1.0 - w,
@@ -246,9 +277,18 @@ class FusionEngine:
         adjusted_ai_pm25 = _weather_correction(ai_pm25, weather)
 
         # ── Step 2: Station IDW interpolation ──
-        station_pm25 = _station_idw(stations)
-        valid_stations = [s for s in stations if s.distance_km <= _STATION_RADIUS_KM]
-        stations_used = len(valid_stations)
+        # Only physical sensors are interpolated. Modelled grid values are held
+        # back as a fallback: they report at the query coordinate, so mixing
+        # them into IDW would give them a near-infinite inverse-distance weight
+        # and drown out every real monitor.
+        sensors = [s for s in stations if s.kind == "sensor"]
+        models = [s for s in stations if s.kind == "model"]
+
+        station_pm25 = _station_idw(sensors)
+        valid_stations = [s for s in sensors if s.distance_km <= _STATION_RADIUS_KM]
+        # Corroboration is a property of independent physical monitors, so the
+        # confidence model counts sensors only — never the model fallback.
+        sensor_count = len(valid_stations)
 
         # ── Step 3: Sigmoid-weighted AI ↔ Station blending ──
         if station_pm25 is not None and valid_stations:
@@ -259,9 +299,22 @@ class FusionEngine:
                 "[FUSION] blended: ai_adj=%.2f × %.4f + station=%.2f × %.4f = %.2f",
                 adjusted_ai_pm25, w_ai, station_pm25, 1.0 - w_ai, final_pm25,
             )
+        elif models:
+            # No monitor in range — fall back to the modelled estimate rather
+            # than the image alone. This is the case that used to leave large
+            # areas uncovered.
+            station_pm25 = sum(m.pm25 for m in models) / len(models)
+            valid_stations = models
+            w_ai = _MODEL_AI_WEIGHT
+            final_pm25 = adjusted_ai_pm25 * w_ai + station_pm25 * (1.0 - w_ai)
+            logger.debug(
+                "[FUSION] no sensors in range — %d model source(s): ai_adj=%.2f × %.2f "
+                "+ model=%.2f × %.2f = %.2f",
+                len(models), adjusted_ai_pm25, w_ai, station_pm25, 1.0 - w_ai, final_pm25,
+            )
         else:
             final_pm25 = adjusted_ai_pm25
-            logger.debug("[FUSION] no valid stations — using AI estimate only: %.2f", final_pm25)
+            logger.debug("[FUSION] no station or model data — using AI estimate only: %.2f", final_pm25)
 
         final_pm25 = max(0.0, final_pm25)
 
@@ -272,7 +325,7 @@ class FusionEngine:
         adjusted_confidence = _composite_confidence(
             base_confidence=ai_confidence,
             weather=weather,
-            stations_used=stations_used,
+            stations_used=sensor_count,
             ai_pm25=adjusted_ai_pm25,
             station_pm25=station_pm25,
         )
@@ -289,9 +342,10 @@ class FusionEngine:
             ai_confidence=adjusted_confidence,
             dominant_pollutant="PM2.5",
             weather=weather,
-            stations_used=stations_used,
-            # Stations that actually contributed to the blend. Returned so the
-            # API cannot report a station the fusion excluded.
+            # Readings that actually contributed to the blend — sensors when
+            # any were in range, otherwise the model sources that replaced them.
+            stations_used=len(valid_stations),
+            # Returned so the API cannot report a station the fusion excluded.
             contributing_stations=valid_stations,
             fusion_method="composite_exponential_v2",
         )
