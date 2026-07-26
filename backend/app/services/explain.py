@@ -22,9 +22,10 @@ Gemini's job is to weigh those against what it knows about the region's
 emission sources and meteorology. The numbers are ours; the synthesis is its.
 """
 
+import json
 import logging
 import math
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 import httpx
 from pydantic import BaseModel
@@ -357,39 +358,71 @@ Return JSON matching this shape exactly:
 Provide 2-4 drivers, ordered by how much they matter."""
 
 
+_CHAT_SYSTEM_INSTRUCTION = """You are an atmospheric scientist answering a \
+non-specialist's questions about the air quality at one specific place, right now.
+
+Every message you receive carries the same derived evidence base: the measured \
+PM2.5 level, the spatial gradient of the modelled pollution field, a 24-hour \
+trajectory, an upwind/downwind determination, ventilation conditions, and how far \
+physical monitors diverge from the reanalysis. That evidence is the only data you \
+have about this location — you cannot fetch more, and it refreshes on its own \
+between turns.
+
+Rules:
+- Answer the question that was asked. Do not deliver the full briefing again \
+unless that is what was asked for.
+- Ground quantitative claims in a specific number from the evidence, cited inline.
+- Reason causally from the meteorology and field geometry. Do not recite generic \
+causes of particulate pollution.
+- You may use what you know about the named region's emission sources, topography \
+and seasonality, but only where the evidence supports that source being active now, \
+and say plainly when you are inferring rather than reading off the data.
+- If the evidence cannot answer the question — it asks about a pollutant other than \
+PM2.5, another location, a forecast beyond the 24 h series — say what is missing \
+instead of guessing.
+- If data_consistency reports a CONFLICT, treat the absolute level as uncertain and \
+answer in ranges.
+- Never restate a number as a different number. Never invent data not present.
+- Health advice stays general and non-clinical: exposure guidance, not diagnosis or \
+treatment. Point anyone describing symptoms toward a doctor.
+
+Write plain conversational prose, 2-5 sentences for a simple question and at most \
+three short paragraphs for a broad one. No markdown headings, no bullet lists, no \
+JSON."""
+
+
 class ExplainError(Exception):
     """Raised when the explanation could not be produced."""
 
 
-async def generate_explanation(evidence: dict) -> dict:
-    """Call Gemini with the evidence base and return the parsed explanation."""
+class ChatMessage(BaseModel):
+    """One turn of the explanation chat, in Gemini's role vocabulary."""
+
+    role: Literal["user", "model"]
+    text: str
+
+
+async def _call_gemini(
+    system_instruction: str,
+    contents: list[dict],
+    generation_config: dict,
+) -> str:
+    """
+    POST to Gemini and return the candidate's text.
+
+    Shared by the one-shot explanation and the chat so both fail the same way:
+    the interesting errors here (rejected key, rate limit, a thinking model that
+    burns its whole budget and returns empty text) are worth reporting precisely
+    exactly once.
+    """
     if not settings.gemini_api_key:
         raise ExplainError("GEMINI_API_KEY is not configured")
 
-    import json
-
     url = _ENDPOINT.format(model=settings.gemini_model)
     payload = {
-        "systemInstruction": {"parts": [{"text": _SYSTEM_INSTRUCTION}]},
-        "contents": [
-            {
-                "role": "user",
-                "parts": [
-                    {
-                        "text": (
-                            "Explain why PM2.5 is at this level here, now.\n\n"
-                            "EVIDENCE BASE:\n"
-                            + json.dumps(evidence, indent=2, ensure_ascii=False)
-                        )
-                    }
-                ],
-            }
-        ],
-        # JSON mode, so the response is parseable without scraping code fences.
-        "generationConfig": {
-            "temperature": 0.4,
-            "responseMimeType": "application/json",
-        },
+        "systemInstruction": {"parts": [{"text": system_instruction}]},
+        "contents": contents,
+        "generationConfig": generation_config,
     }
 
     try:
@@ -430,8 +463,67 @@ async def generate_explanation(evidence: dict) -> dict:
             f"{candidates[0].get('finishReason', 'unknown')})"
         )
 
+    return text
+
+
+async def generate_explanation(evidence: dict) -> dict:
+    """Call Gemini with the evidence base and return the parsed explanation."""
+    text = await _call_gemini(
+        _SYSTEM_INSTRUCTION,
+        [
+            {
+                "role": "user",
+                "parts": [
+                    {
+                        "text": (
+                            "Explain why PM2.5 is at this level here, now.\n\n"
+                            "EVIDENCE BASE:\n"
+                            + json.dumps(evidence, indent=2, ensure_ascii=False)
+                        )
+                    }
+                ],
+            }
+        ],
+        # JSON mode, so the response is parseable without scraping code fences.
+        {"temperature": 0.4, "responseMimeType": "application/json"},
+    )
+
     try:
         return json.loads(text)
     except json.JSONDecodeError as e:
         logger.error("Gemini returned non-JSON despite JSON mode: %s", text[:300])
         raise ExplainError("Gemini returned malformed JSON") from e
+
+
+async def chat_reply(evidence: dict, messages: List[ChatMessage]) -> str:
+    """
+    Answer a follow-up question about this location's air quality.
+
+    The evidence base is re-attached to the latest user turn rather than sent
+    once at the start of the conversation: it is refetched every turn and the
+    numbers move, so a copy pinned to the first message would have the model
+    answering "has it changed?" against the reading it was already given.
+    """
+    if not messages or messages[-1].role != "user":
+        raise ExplainError("The conversation must end with a user message")
+
+    contents: list[dict] = [
+        {"role": m.role, "parts": [{"text": m.text}]} for m in messages
+    ]
+    contents[-1]["parts"].append(
+        {
+            "text": (
+                "\n\n[CURRENT EVIDENCE BASE for this location, refreshed now — "
+                "answer from it, and do not quote this block back verbatim]\n"
+                + json.dumps(evidence, indent=2, ensure_ascii=False)
+            )
+        }
+    )
+
+    return await _call_gemini(
+        _CHAT_SYSTEM_INSTRUCTION,
+        contents,
+        # Prose, not JSON. Slightly warmer than the briefing since this is
+        # conversation, but low enough that the numbers stay put.
+        {"temperature": 0.6},
+    )

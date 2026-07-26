@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 from pydantic import BaseModel
 from .model import AirQualityModel
-from .ood import SkyReferenceBank
+from .ood import SkyProbe
 from .preprocessing import ImagePreprocessor
 
 logger = logging.getLogger("airq.ml")
@@ -18,11 +18,12 @@ _CONF_UNCERTAINTY_LAMBDA: float = 6.0
 # drive confidence to exactly zero (which would read as a bug, not a signal).
 _OOD_PENALTY_FLOOR: float = 0.05
 
-# Width of the band below the sky-distance threshold over which confidence is
+# Width of the band above the sky-score threshold over which confidence is
 # ramped down. Photos comfortably inside the domain are not penalised; those
 # approaching the reject boundary lose confidence smoothly rather than at a
-# cliff edge.
-_SKY_RAMP_WIDTH: float = 0.10
+# cliff edge. 2.5 places the full penalty on roughly the least sky-like quarter
+# of genuine sky photographs, measured on cross-validated probe scores.
+_SKY_RAMP_WIDTH: float = 2.5
 
 
 class PredictionResult(BaseModel):
@@ -32,20 +33,20 @@ class PredictionResult(BaseModel):
     pm25_estimate: float
     uncertainty: float  # std of the MC-dropout samples, in calibrated µg/m³
     out_of_distribution: bool
-    sky_distance: float  # cosine distance to the sky reference bank
+    sky_score: float  # probe margin; positive is sky-like, negative is not
     is_sky: bool  # False when the gate rejects the image as non-sky
 
 
 class InferenceService:
     def __init__(self, model_path: Path, calibration_divisor: float,
                  pm25_max: float, mc_samples: int,
-                 sky_bank: SkyReferenceBank):
+                 sky_probe: SkyProbe):
         self.model = AirQualityModel(model_path)
         self.preprocessor = ImagePreprocessor()
         self.calibration_divisor = calibration_divisor
         self.pm25_max = pm25_max
         self.mc_samples = mc_samples
-        self.sky_bank = sky_bank
+        self.sky_probe = sky_probe
 
     def _pm25_to_class(self, pm25: float) -> tuple[int, str]:
         """Map PM2.5 scalar to EPA category (2024 revised breakpoints)."""
@@ -58,15 +59,16 @@ class InferenceService:
 
     def predict(self, image_bytes: bytes) -> PredictionResult:
         """Process image bytes and return a PM2.5 estimate with real uncertainty."""
-        tensor = self.preprocessor.process_bytes(image_bytes)
-        features = self.model.features(tensor)
+        image = self.preprocessor.decode(image_bytes)
 
         # ── Domain gate ──
         # Runs before anything else reads the head: the head will happily map
         # a carpet to a plausible number, so whether the image is a sky at all
-        # has to be decided from the features, not the output.
-        sky_distance = self.sky_bank.distance(features.cpu().numpy()[0])
-        is_sky = sky_distance <= self.sky_bank.threshold
+        # has to be decided independently of what the head says.
+        sky_score = self.sky_probe.score(image)
+        is_sky = sky_score >= self.sky_probe.threshold
+
+        features = self.model.features(self.preprocessor.process_image(image))
 
         raw_mean, raw_std = self.model.predict_with_uncertainty(features, self.mc_samples)
         logger.debug("[MODEL_PREDICTION] raw_mean=%.4f raw_std=%.4f", raw_mean, raw_std)
@@ -102,15 +104,15 @@ class InferenceService:
         # A photo near the reject boundary is only marginally sky-like, and the
         # estimate deserves less weight even though it was not rejected.
         if is_sky:
-            margin = self.sky_bank.threshold - sky_distance
+            margin = sky_score - self.sky_probe.threshold
             confidence *= min(1.0, margin / _SKY_RAMP_WIDTH)
         else:
             # Rejected outright — callers must not present this as an estimate.
             confidence = 0.0
             out_of_distribution = True
             logger.warning(
-                "[MODEL_PREDICTION] rejected as non-sky: distance=%.3f > "
-                "threshold=%.3f", sky_distance, self.sky_bank.threshold,
+                "[MODEL_PREDICTION] rejected as non-sky: score=%.3f < "
+                "threshold=%.3f", sky_score, self.sky_probe.threshold,
             )
 
         confidence = max(0.0, min(confidence, 1.0))
@@ -118,9 +120,9 @@ class InferenceService:
 
         logger.debug(
             "[MODEL_PREDICTION] pm25=%.2f | uncertainty=±%.2f | cv=%.4f | "
-            "confidence=%.3f | class=%s | ood=%s | sky_distance=%.3f | is_sky=%s",
+            "confidence=%.3f | class=%s | ood=%s | sky_score=%.3f | is_sky=%s",
             pm25, uncertainty, cv, confidence, class_name, out_of_distribution,
-            sky_distance, is_sky,
+            sky_score, is_sky,
         )
 
         return PredictionResult(
@@ -130,6 +132,6 @@ class InferenceService:
             pm25_estimate=pm25,
             uncertainty=uncertainty,
             out_of_distribution=out_of_distribution,
-            sky_distance=sky_distance,
+            sky_score=sky_score,
             is_sky=is_sky,
         )

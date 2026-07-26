@@ -80,7 +80,7 @@ class AirQualityModel(nn.Module):
         A wide spread means the features land in a region the head has not
         learned confidently. Note this measures head stability only — it says
         nothing about whether the image belongs to the model's domain, which
-        is what SkyReferenceBank is for.
+        is what SkyProbe is for.
         """
         dropouts = [m for m in self.head.modules() if isinstance(m, nn.Dropout)]
         if not dropouts or n_samples < 2:

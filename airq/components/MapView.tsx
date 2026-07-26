@@ -5,9 +5,20 @@ import mapboxgl from "mapbox-gl";
 // mapbox-gl.css is imported globally in app/globals.css — importing it here
 // instead would ship it inside this component's on-demand chunk, so it can
 // arrive after the map already initialized (canvas sizes/positions wrong).
-import { AlertTriangle } from "lucide-react";
-import type { Coords, GridPoint, SourceHealth, Station, StationsResponse } from "@/types";
+import { AlertTriangle, Route } from "lucide-react";
+import type {
+  Coords,
+  GridPoint,
+  RouteProfile,
+  RouteResponse,
+  SourceHealth,
+  Station,
+  StationsResponse,
+} from "@/types";
+import { RoutePanel } from "@/components/RoutePanel";
+import { useAuth } from "@/lib/auth";
 import { useI18n } from "@/lib/i18n";
+import { planRoute, routesToGeoJSON } from "@/lib/route";
 import { ALARM } from "@/lib/utils";
 
 type Props = {
@@ -185,8 +196,19 @@ function buildField(grid: GridPoint[], cellDeg: number): { url: string; coordina
   };
 }
 
+/** The A and B pins, as a DOM marker with the letter on it. */
+function endpointMarker(letter: string): HTMLDivElement {
+  const el = document.createElement("div");
+  el.textContent = letter;
+  el.style.cssText =
+    "display:grid;place-items:center;width:22px;height:22px;border:1px solid rgba(255,255,255,.9);" +
+    "background:#000;color:#fff;font:600 11px ui-monospace,monospace;border-radius:50%";
+  return el;
+}
+
 export default function MapView({ coords, aqi }: Props) {
   const { t } = useI18n();
+  const { authFetch } = useAuth();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
   const markerRef = useRef<mapboxgl.Marker | null>(null);
@@ -206,6 +228,22 @@ export default function MapView({ coords, aqi }: Props) {
   // The box currently being covered. Set from the map's own bounds, so the data
   // spans everything on screen instead of a fixed radius around the user.
   const [bbox, setBbox] = useState<Bbox | null>(null);
+
+  // ---- clean-route planner ----
+  const [routeMode, setRouteMode] = useState(false);
+  // The run starts where the user is, so entering the mode prefills A and asks
+  // only for the destination. Clicking again while both are set starts over.
+  // One object, not two states: the click handler is attached once for the
+  // whole mode and decides which end it is setting from the pair it already has.
+  const [pins, setPins] = useState<{ start: Coords | null; end: Coords | null }>({
+    start: null,
+    end: null,
+  });
+  const [profile, setProfile] = useState<RouteProfile>("walking");
+  const [route, setRoute] = useState<RouteResponse | null>(null);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [routeError, setRouteError] = useState<string | null>(null);
+  const endpointMarkersRef = useRef<mapboxgl.Marker[]>([]);
 
   // ---- fetch readings for whatever the map is showing ----
   useEffect(() => {
@@ -309,6 +347,65 @@ export default function MapView({ coords, aqi }: Props) {
         },
         firstSymbol,
       );
+
+      // Route candidates, drawn under the station dots so a monitor is never
+      // hidden by a line passing over it.
+      //
+      // All of them are drawn, not only the winner. The rejected detours are
+      // the argument for the recommendation: a line swinging through the dirty
+      // side of town explains the chosen one better than any number does.
+      map.addSource("routes", { type: "geojson", data: EMPTY });
+      map.addLayer({
+        id: "routes-other",
+        type: "line",
+        source: "routes",
+        filter: ["==", ["get", "role"], "other"],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "rgba(255,255,255,0.85)", "line-width": 1.5, "line-opacity": 0.28 },
+      });
+      map.addLayer({
+        id: "routes-shortest",
+        type: "line",
+        source: "routes",
+        filter: ["==", ["get", "role"], "shortest"],
+        layout: { "line-cap": "butt", "line-join": "round" },
+        paint: {
+          "line-color": "rgba(255,255,255,0.9)",
+          "line-width": 2.5,
+          // Dashed: this is the route being compared against, not the advice.
+          "line-dasharray": [1.6, 1.6],
+        },
+      });
+      map.addLayer({
+        id: "routes-recommended-casing",
+        type: "line",
+        source: "routes",
+        filter: ["==", ["get", "role"], "recommended"],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: { "line-color": "#000", "line-width": 8, "line-opacity": 0.6 },
+      });
+      map.addLayer({
+        id: "routes-recommended",
+        type: "line",
+        source: "routes",
+        filter: ["==", ["get", "role"], "recommended"],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          // Same steps as the field and the dots: the line's colour is the air
+          // on it, read against the identical legend.
+          "line-color": [
+            "step",
+            ["get", "aqi"],
+            AQI_STEPS[0][1],
+            50, AQI_STEPS[1][1],
+            100, AQI_STEPS[2][1],
+            150, AQI_STEPS[3][1],
+            200, AQI_STEPS[4][1],
+            300, AQI_STEPS[5][1],
+          ],
+          "line-width": 4.5,
+        },
+      });
 
       // One dot per real reading. Unlike the generated field these are few and
       // meaningful, so they stay visible at every zoom level.
@@ -497,6 +594,107 @@ export default function MapView({ coords, aqi }: Props) {
     };
   }, [stations, grid, cellDeg]);
 
+  // ---- route mode: pick the endpoints by clicking the map ----
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !routeMode) return;
+
+    const onClick = (e: mapboxgl.MapMouseEvent) => {
+      const picked = { latitude: e.lngLat.lat, longitude: e.lngLat.lng };
+      setPins((p) =>
+        // A complete pair means the user is starting a new route, not editing
+        // this one — otherwise the third click would silently move B and it
+        // would never be clear which end had changed.
+        !p.start || p.end ? { start: picked, end: null } : { start: p.start, end: picked },
+      );
+    };
+
+    map.on("click", onClick);
+    map.getCanvas().style.cursor = "crosshair";
+    return () => {
+      map.off("click", onClick);
+      map.getCanvas().style.cursor = "";
+    };
+  }, [routeMode]);
+
+  // ---- A / B markers ----
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    endpointMarkersRef.current.forEach((m) => m.remove());
+    endpointMarkersRef.current = [];
+    if (!routeMode) return;
+
+    ([["A", pins.start], ["B", pins.end]] as const).forEach(([letter, c]) => {
+      if (!c) return;
+      endpointMarkersRef.current.push(
+        new mapboxgl.Marker({ element: endpointMarker(letter) })
+          .setLngLat([c.longitude, c.latitude])
+          .addTo(map),
+      );
+    });
+  }, [routeMode, pins]);
+
+  // ---- plan the route whenever both ends (or the profile) change ----
+  useEffect(() => {
+    if (!routeMode || !pins.start || !pins.end) {
+      setRoute(null);
+      setRouteError(null);
+      return;
+    }
+    const ctrl = new AbortController();
+    setRouteLoading(true);
+    setRouteError(null);
+    planRoute(authFetch, pins.start, pins.end, profile, ctrl.signal)
+      .then((r) => {
+        setRoute(r);
+        setRouteLoading(false);
+      })
+      .catch((e: unknown) => {
+        // A newer request superseded this one; it owns the state now.
+        if (e instanceof Error && e.name === "AbortError") return;
+        setRoute(null);
+        setRouteError(e instanceof Error ? e.message : "request failed");
+        setRouteLoading(false);
+      });
+    return () => ctrl.abort();
+  }, [routeMode, pins, profile, authFetch]);
+
+  // ---- push the candidates into the map source ----
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    // Same ordering problem as the readings effect: sourcedata can fire before
+    // the "load" handler has created this source.
+    const apply = () => {
+      const src = map.getSource("routes") as mapboxgl.GeoJSONSource | undefined;
+      if (!src) return false;
+      src.setData((route ? routesToGeoJSON(route) : EMPTY) as never);
+      return true;
+    };
+    if (apply()) return;
+    const retry = () => {
+      if (apply()) map.off("sourcedata", retry);
+    };
+    map.on("sourcedata", retry);
+    return () => {
+      map.off("sourcedata", retry);
+    };
+  }, [route]);
+
+  function openRouteMode() {
+    // The run starts where you are, so only the destination needs a click.
+    setPins({ start: coords ? { ...coords } : null, end: null });
+    setRouteMode(true);
+  }
+
+  function closeRouteMode() {
+    setRouteMode(false);
+    setPins({ start: null, end: null });
+    setRoute(null);
+    setRouteError(null);
+  }
+
   if (!TOKEN) {
     return (
       <div className="relative flex h-full min-h-[360px] w-full items-center justify-center overflow-hidden border border-white/10 p-6 lg:min-h-[560px]">
@@ -582,6 +780,31 @@ export default function MapView({ coords, aqi }: Props) {
           <span>{t.high}</span>
         </div>
       </div>
+
+      {/* clean-route planner */}
+      {routeMode ? (
+        <RoutePanel
+          profile={profile}
+          onProfile={setProfile}
+          hasStart={pins.start != null}
+          hasEnd={pins.end != null}
+          loading={routeLoading}
+          error={routeError}
+          result={route}
+          onClear={() => setPins({ start: coords ? { ...coords } : null, end: null })}
+          onClose={closeRouteMode}
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={openRouteMode}
+          data-cursor="grow"
+          className="lp-mono absolute bottom-3 right-3 z-[6] flex items-center gap-2 border border-white/15 bg-black/70 px-2.5 py-1.5 text-white/70 backdrop-blur-md transition-colors hover:border-white/35 hover:text-white"
+        >
+          <Route className="h-3.5 w-3.5" />
+          {t.routeOpen}
+        </button>
+      )}
 
       {/* vignette — pulls the basemap's edges back into the page's black */}
       <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_80px_rgba(0,0,0,0.75)]" />

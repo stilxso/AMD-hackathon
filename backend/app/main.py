@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.api.v1 import analyze, auth, explain, stations
+from app.api.v1 import analyze, auth, explain, route, stations
 from app.services.auth import ensure_demo_user, init_db
 
 logger = logging.getLogger("airq")
@@ -36,17 +36,16 @@ async def lifespan(app: FastAPI):
     # (useful during early scaffold testing).
     try:
         from app.ml.inference import InferenceService
-        from app.ml.ood import SkyReferenceBank
+        from app.ml.ood import SkyProbe
 
         service = InferenceService(
             model_path=settings.model_abs_path,
             calibration_divisor=settings.pm25_calibration_divisor,
             pm25_max=settings.pm25_max,
             mc_samples=settings.mc_dropout_samples,
-            sky_bank=SkyReferenceBank(
-                bank_path=settings.sky_bank_abs_path,
-                k=settings.sky_knn_k,
-                threshold=settings.sky_distance_threshold,
+            sky_probe=SkyProbe(
+                probe_path=settings.sky_probe_abs_path,
+                threshold=settings.sky_score_threshold,
             ),
         )
         app.state.ml_service = service
@@ -106,6 +105,7 @@ def create_app() -> FastAPI:
     app.include_router(analyze.router, prefix="/api/v1")
     app.include_router(stations.router, prefix="/api/v1")
     app.include_router(explain.router, prefix="/api/v1")
+    app.include_router(route.router, prefix="/api/v1")
 
     return app
 

@@ -55,6 +55,50 @@ export type StationsResponse = {
   sources: SourceHealth[];
 };
 
+/** How a candidate was obtained: the plain A→B route, one of Mapbox's own
+ *  alternatives, or a detour the backend forced through an offset via-point. */
+export type RouteKind = "direct" | "alternative" | "detour";
+
+export type PlannedRoute = {
+  kind: RouteKind;
+  /** [lng, lat] pairs, GeoJSON order. */
+  geometry: [number, number][];
+  distanceKm: number;
+  durationMin: number;
+  meanPm25: number;
+  maxPm25: number;
+  aqi: number;
+  /** PM2.5 integrated over the time on the route, µg·min/m³ — what the routes
+   *  are actually ranked by, since a longer clean route still costs breaths. */
+  exposure: number;
+};
+
+export type RouteResponse = {
+  profile: RouteProfile;
+  routes: PlannedRoute[];
+  recommendedIndex: number;
+  shortestIndex: number;
+  exposureReductionPct: number;
+  extraDistanceKm: number;
+  extraMinutes: number;
+  /** False when every candidate scores within ~1 µg/m³ of the others, i.e. the
+   *  data cannot tell them apart and the recommendation is just the shortest.
+   *  Never present a detour as worthwhile without this. */
+  differentiated: boolean;
+  sensorCount: number;
+  /** Resolution of the modelled field behind the scores, in km. */
+  gridCellKm: number | null;
+};
+
+export type RouteProfile = "walking" | "cycling";
+
+/** One turn of the explanation chat. "model" rather than "assistant" because
+ *  the transcript is replayed to Gemini verbatim, in its role vocabulary. */
+export type ChatTurn = {
+  role: "user" | "model";
+  text: string;
+};
+
 /** The account returned by /api/v1/auth/login, /register and /me. */
 export type AuthUser = {
   id: number;

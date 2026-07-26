@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     openaq_api_key: str = ""
     openweather_api_key: str = ""
 
+    # Mapbox Directions powers /route. A public (pk.) token is enough — the same
+    # one the frontend map uses. Empty makes /route return 503; nothing else is
+    # affected.
+    mapbox_token: str = ""
+
     # Gemini generates the "why is pollution at this level" explanation. Empty
     # disables /explain with a clear 503 rather than breaking startup.
     gemini_api_key: str = ""
@@ -55,16 +60,13 @@ class Settings(BaseSettings):
     # The regression head maps any image to a number, so a photo of a carpet
     # scores as confidently as a photo of the sky. These settings drive the
     # gate that rejects non-sky input before it is presented as an estimate.
-    sky_bank_path: str = "sky_bank.npz"
+    sky_probe_path: str = "sky_probe.npz"
 
-    # Neighbours averaged when measuring distance to the bank.
-    sky_knn_k: int = 5
-
-    # Reject above this cosine distance. Set from a leave-one-out sweep over
-    # the reference photographs: it is their 95th-percentile distance, so
-    # roughly 1 in 20 genuine sky photos is refused, and 93% of the non-sky
-    # evaluation set is caught. Lower it to refuse more aggressively.
-    sky_distance_threshold: float = 0.78
+    # Reject below this probe score. Empty uses the threshold fitted alongside
+    # the weights, which under grouped cross-validation accepts 99% of real sky
+    # photographs and refuses 97% of everything else. Raise it to refuse more
+    # aggressively, at the cost of turning away genuine skies.
+    sky_score_threshold: float | None = None
 
     # ── Auth ─────────────────────────────────────────────────────────
     # HS256 signing key for access tokens. Empty means "generate a random key
@@ -106,10 +108,10 @@ class Settings(BaseSettings):
         return (base / self.model_path).resolve()
 
     @property
-    def sky_bank_abs_path(self) -> Path:
-        """Resolve sky_bank_path relative to the backend/ directory."""
+    def sky_probe_abs_path(self) -> Path:
+        """Resolve sky_probe_path relative to the backend/ directory."""
         base = Path(__file__).resolve().parent.parent  # backend/
-        return (base / self.sky_bank_path).resolve()
+        return (base / self.sky_probe_path).resolve()
 
     @property
     def db_abs_path(self) -> Path:

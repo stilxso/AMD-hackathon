@@ -17,10 +17,11 @@ class ImagePreprocessor:
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
 
-    def process_bytes(self, image_bytes: bytes) -> torch.Tensor:
+    def decode(self, image_bytes: bytes) -> Image.Image:
         """
-        Takes raw image bytes, opens with PIL, applies transforms,
-        and returns a batch-ready tensor (shape: [1, 3, H, W]).
+        Raw bytes to an upright RGB image. Separate from process_bytes because
+        the sky gate runs its own encoder with its own transform, and decoding
+        the upload twice would be wasted work.
 
         Raises ValueError for input that is not a decodable image.
         """
@@ -28,10 +29,19 @@ class ImagePreprocessor:
             image = Image.open(io.BytesIO(image_bytes))
             # Phone cameras record rotation in EXIF rather than rotating pixels;
             # without this a portrait photo reaches the model on its side.
-            image = ImageOps.exif_transpose(image).convert('RGB')
+            return ImageOps.exif_transpose(image).convert('RGB')
         except (UnidentifiedImageError, OSError, ValueError) as e:
             raise ValueError(f"Invalid or unsupported image format: {e}")
 
-        tensor = self.transform(image)
-        # Add batch dimension
-        return tensor.unsqueeze(0)
+    def process_bytes(self, image_bytes: bytes) -> torch.Tensor:
+        """
+        Takes raw image bytes, opens with PIL, applies transforms,
+        and returns a batch-ready tensor (shape: [1, 3, H, W]).
+
+        Raises ValueError for input that is not a decodable image.
+        """
+        return self.process_image(self.decode(image_bytes))
+
+    def process_image(self, image: Image.Image) -> torch.Tensor:
+        """Transform an already-decoded image into a batch-ready tensor."""
+        return self.transform(image).unsqueeze(0)

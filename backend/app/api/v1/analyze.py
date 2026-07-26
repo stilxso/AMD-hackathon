@@ -83,7 +83,7 @@ async def analyze_image(
         # answer, and its own answer for a non-sky photo is "I can't tell".
         if not ml_result.is_sky:
             logger.info(
-                "Rejected non-sky upload: sky_distance=%.3f", ml_result.sky_distance,
+                "Rejected non-sky upload: sky_score=%.3f", ml_result.sky_score,
             )
             raise HTTPException(
                 status_code=422,
@@ -132,7 +132,7 @@ async def analyze_image(
             "raw_ai_pm25": raw_pm25,
             "pm25_uncertainty": round(ml_result.uncertainty, 1),
             "out_of_distribution": ml_result.out_of_distribution,
-            "sky_distance": round(ml_result.sky_distance, 3),
+            "sky_score": round(ml_result.sky_score, 2),
             "fusion_method": "nn_only",
             "stations_used": 0,
             "nearby_stations": [],
@@ -148,7 +148,7 @@ async def analyze_image(
         "raw_ai_pm25": round(ml_result.pm25_estimate, 1),
         "pm25_uncertainty": round(ml_result.uncertainty, 1),
         "out_of_distribution": ml_result.out_of_distribution,
-        "sky_distance": round(ml_result.sky_distance, 3),
+        "sky_score": round(ml_result.sky_score, 2),
         "fusion_method": fusion.fusion_method,
         "stations_used": fusion.stations_used,
         # Only stations the fusion actually used. Reporting the unfiltered

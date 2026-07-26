@@ -80,6 +80,36 @@ export type Dict = {
   adminApply: string;
   adminResetLocation: string;
   adminInvalidCoords: string;
+  routeOpen: string;
+  routeTitle: string;
+  routeWalk: string;
+  routeBike: string;
+  routePickStart: string;
+  routePickEnd: string;
+  routePlanning: string;
+  routeFailed: string;
+  routeClear: string;
+  routeDistance: string;
+  routeTime: string;
+  routeAvgPm: string;
+  routeCleaner: string;
+  routeAlreadyBest: string;
+  routeUniform: string;
+  routeMin: string;
+  routeMonitors: string;
+  routeGrid: string;
+  chatTitle: string;
+  chatSubtitle: string;
+  chatOpen: string;
+  chatPlaceholder: string;
+  chatSend: string;
+  chatThinking: string;
+  chatFailed: string;
+  chatRetry: string;
+  chatClear: string;
+  chatNeedsLocation: string;
+  chatDisclaimer: string;
+  chatSuggestions: string[];
 };
 
 const dictionaries: Record<Lang, Dict> = {
@@ -165,6 +195,41 @@ const dictionaries: Record<Lang, Dict> = {
     adminApply: "Apply",
     adminResetLocation: "Reset to real location",
     adminInvalidCoords: "Latitude must be −90…90, longitude −180…180.",
+    routeOpen: "Clean route",
+    routeTitle: "Clean route",
+    routeWalk: "Walk",
+    routeBike: "Bike",
+    routePickStart: "Click the map to set your start",
+    routePickEnd: "Now click your destination",
+    routePlanning: "Comparing routes…",
+    routeFailed: "Route unavailable",
+    routeClear: "Clear",
+    routeDistance: "Distance",
+    routeTime: "Time",
+    routeAvgPm: "Avg PM2.5",
+    routeCleaner: "less breathed in than the shortest way",
+    routeAlreadyBest: "The shortest way is already the cleanest.",
+    routeUniform: "Routes differ by less than the data can resolve here — this is just the shortest one.",
+    routeMin: "min",
+    routeMonitors: "monitors scored this",
+    routeGrid: "km model grid",
+    chatTitle: "Ask the air",
+    chatSubtitle: "Why the air here reads the way it does",
+    chatOpen: "Ask about this air",
+    chatPlaceholder: "Ask why the air is like this…",
+    chatSend: "Send",
+    chatThinking: "Reading the evidence…",
+    chatFailed: "Could not answer",
+    chatRetry: "Try again",
+    chatClear: "New conversation",
+    chatNeedsLocation: "Waiting for a location to reason about.",
+    chatDisclaimer: "Answers come from live station, model and weather data for this point. Not medical advice.",
+    chatSuggestions: [
+      "Why is it at this level right now?",
+      "Is it safe to go for a run?",
+      "Where is the pollution coming from?",
+      "Will it get better tonight?",
+    ],
   },
   RU: {
     brand: "AirQ",
@@ -248,6 +313,41 @@ const dictionaries: Record<Lang, Dict> = {
     adminApply: "Применить",
     adminResetLocation: "Вернуть реальную локацию",
     adminInvalidCoords: "Широта должна быть −90…90, долгота −180…180.",
+    routeOpen: "Чистый маршрут",
+    routeTitle: "Чистый маршрут",
+    routeWalk: "Пешком",
+    routeBike: "Велосипед",
+    routePickStart: "Кликните по карте — начало маршрута",
+    routePickEnd: "Теперь кликните точку назначения",
+    routePlanning: "Сравниваем маршруты…",
+    routeFailed: "Маршрут недоступен",
+    routeClear: "Сбросить",
+    routeDistance: "Расстояние",
+    routeTime: "Время",
+    routeAvgPm: "Средний PM2.5",
+    routeCleaner: "меньше вдыхаемых частиц, чем на коротком пути",
+    routeAlreadyBest: "Самый короткий путь и так самый чистый.",
+    routeUniform: "Здесь маршруты различаются меньше, чем позволяет разрешение данных — это просто кратчайший.",
+    routeMin: "мин",
+    routeMonitors: "станций в оценке",
+    routeGrid: "км сетка модели",
+    chatTitle: "Спросите о воздухе",
+    chatSubtitle: "Почему воздух здесь именно такой",
+    chatOpen: "Спросить об этом воздухе",
+    chatPlaceholder: "Спросите, почему воздух такой…",
+    chatSend: "Отправить",
+    chatThinking: "Разбираем данные…",
+    chatFailed: "Не удалось ответить",
+    chatRetry: "Повторить",
+    chatClear: "Новый диалог",
+    chatNeedsLocation: "Ждём местоположение, чтобы было о чём рассуждать.",
+    chatDisclaimer: "Ответы строятся на данных станций, модели и погоды для этой точки. Не медицинский совет.",
+    chatSuggestions: [
+      "Почему сейчас именно такой уровень?",
+      "Можно ли идти на пробежку?",
+      "Откуда приходит загрязнение?",
+      "Станет ли лучше к вечеру?",
+    ],
   },
   KZ: {
     brand: "AirQ",
@@ -331,6 +431,41 @@ const dictionaries: Record<Lang, Dict> = {
     adminApply: "Қолдану",
     adminResetLocation: "Нақты орынға қайту",
     adminInvalidCoords: "Ендік −90…90, бойлық −180…180 болуы керек.",
+    routeOpen: "Таза маршрут",
+    routeTitle: "Таза маршрут",
+    routeWalk: "Жаяу",
+    routeBike: "Велосипед",
+    routePickStart: "Бастау нүктесін картадан басыңыз",
+    routePickEnd: "Енді межелі нүктені басыңыз",
+    routePlanning: "Маршруттар салыстырылуда…",
+    routeFailed: "Маршрут қолжетімсіз",
+    routeClear: "Тазарту",
+    routeDistance: "Қашықтық",
+    routeTime: "Уақыт",
+    routeAvgPm: "Орташа PM2.5",
+    routeCleaner: "қысқа жолмен салыстырғанда аз бөлшек жұтасыз",
+    routeAlreadyBest: "Ең қысқа жол әрі ең таза жол.",
+    routeUniform: "Мұнда маршруттар деректер ажырата алатын шектен аз ерекшеленеді — бұл жай ғана ең қысқасы.",
+    routeMin: "мин",
+    routeMonitors: "станция бағалауда",
+    routeGrid: "км модель торы",
+    chatTitle: "Ауа туралы сұраңыз",
+    chatSubtitle: "Мұндағы ауа неліктен осындай",
+    chatOpen: "Осы ауа туралы сұрау",
+    chatPlaceholder: "Ауа неге осындай екенін сұраңыз…",
+    chatSend: "Жіберу",
+    chatThinking: "Деректерді талдап жатырмыз…",
+    chatFailed: "Жауап беру мүмкін болмады",
+    chatRetry: "Қайталау",
+    chatClear: "Жаңа әңгіме",
+    chatNeedsLocation: "Талдау үшін орналасқан жер күтілуде.",
+    chatDisclaimer: "Жауаптар осы нүктедегі станция, модель және ауа райы деректеріне негізделген. Медициналық кеңес емес.",
+    chatSuggestions: [
+      "Неліктен деңгей дәл осындай?",
+      "Жүгіруге шығуға бола ма?",
+      "Ластану қайдан келеді?",
+      "Кешке жақсара ма?",
+    ],
   },
 };
 
