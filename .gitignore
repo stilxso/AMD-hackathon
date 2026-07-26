@@ -33,6 +33,7 @@ backend/*.db-shm
 *.swo
 docs.md
 CLAUDE.md
+DEPLOY.md
 
 # ── Project-specific ──
 .junie/

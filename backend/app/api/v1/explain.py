@@ -3,7 +3,7 @@ import logging
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.api.deps import current_user
 from app.config import settings
@@ -168,6 +168,11 @@ async def explain_pollution(
 # used to smuggle a wall of text past the system instruction.
 _MAX_MESSAGE_CHARS = 1000
 
+# Model turns are our own replies handed back for replay, and an answer routinely
+# runs longer than a question is allowed to be. Holding them to the question cap
+# would reject every conversation from its second turn onward.
+_MAX_REPLY_CHARS = 8000
+
 # Turns kept from the client's history. Each one is replayed to Gemini and the
 # evidence base is re-attached on top, so an unbounded transcript would grow the
 # bill without improving the answer.
@@ -176,7 +181,13 @@ _MAX_TURNS = 20
 
 class ChatTurn(BaseModel):
     role: str = Field(pattern="^(user|model)$")
-    text: str = Field(min_length=1, max_length=_MAX_MESSAGE_CHARS)
+    text: str = Field(min_length=1, max_length=_MAX_REPLY_CHARS)
+
+    @model_validator(mode="after")
+    def _cap_questions(self) -> "ChatTurn":
+        if self.role == "user" and len(self.text) > _MAX_MESSAGE_CHARS:
+            raise ValueError(f"A question may be at most {_MAX_MESSAGE_CHARS} characters.")
+        return self
 
 
 class ChatRequest(BaseModel):

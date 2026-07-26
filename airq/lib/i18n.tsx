@@ -407,6 +407,7 @@ const dictionaries: Record<Lang, Dict> = {
     chatNeedsLocation: "Waiting for a location to reason about.",
     chatDisclaimer: "Answers come from live station, model and weather data for this point. Not medical advice.",
     chatSuggestions: [
+      "Is everything ok with the air here?",
       "Why is it at this level right now?",
       "Is it safe to go for a run?",
       "Where is the pollution coming from?",
@@ -616,6 +617,7 @@ const dictionaries: Record<Lang, Dict> = {
     chatNeedsLocation: "Ждём местоположение, чтобы было о чём рассуждать.",
     chatDisclaimer: "Ответы строятся на данных станций, модели и погоды для этой точки. Не медицинский совет.",
     chatSuggestions: [
+      "С воздухом здесь всё в порядке?",
       "Почему сейчас именно такой уровень?",
       "Можно ли идти на пробежку?",
       "Откуда приходит загрязнение?",
@@ -825,6 +827,7 @@ const dictionaries: Record<Lang, Dict> = {
     chatNeedsLocation: "Талдау үшін орналасқан жер күтілуде.",
     chatDisclaimer: "Жауаптар осы нүктедегі станция, модель және ауа райы деректеріне негізделген. Медициналық кеңес емес.",
     chatSuggestions: [
+      "Мұндағы ауа жақсы ма?",
       "Неліктен деңгей дәл осындай?",
       "Жүгіруге шығуға бола ма?",
       "Ластану қайдан келеді?",
