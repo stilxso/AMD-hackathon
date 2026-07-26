@@ -181,7 +181,16 @@ function AirQApp() {
     setPhase("scanning");
     try {
       const res = await authFetch("/api/v1/analyze", { method: "POST", body: form });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        // The server explains rejections in `detail` — most importantly a 422
+        // for a photo that isn't the sky. Showing "HTTP 422" instead would
+        // leave the user with no idea what to do differently.
+        const detail = await res
+          .json()
+          .then((b) => (typeof b?.detail === "string" ? b.detail : null))
+          .catch(() => null);
+        throw new Error(detail ?? `HTTP ${res.status}`);
+      }
       const data = (await res.json()) as AnalyzeResponse;
       setResult(data);
       setPhase("done");

@@ -36,12 +36,18 @@ async def lifespan(app: FastAPI):
     # (useful during early scaffold testing).
     try:
         from app.ml.inference import InferenceService
+        from app.ml.ood import SkyReferenceBank
 
         service = InferenceService(
             model_path=settings.model_abs_path,
             calibration_divisor=settings.pm25_calibration_divisor,
             pm25_max=settings.pm25_max,
             mc_samples=settings.mc_dropout_samples,
+            sky_bank=SkyReferenceBank(
+                bank_path=settings.sky_bank_abs_path,
+                k=settings.sky_knn_k,
+                threshold=settings.sky_distance_threshold,
+            ),
         )
         app.state.ml_service = service
         logger.info(

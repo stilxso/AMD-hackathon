@@ -51,6 +51,21 @@ class Settings(BaseSettings):
     # Only the small regression head is re-run, so this is cheap.
     mc_dropout_samples: int = 20
 
+    # ── Out-of-distribution gate ─────────────────────────────────────
+    # The regression head maps any image to a number, so a photo of a carpet
+    # scores as confidently as a photo of the sky. These settings drive the
+    # gate that rejects non-sky input before it is presented as an estimate.
+    sky_bank_path: str = "sky_bank.npz"
+
+    # Neighbours averaged when measuring distance to the bank.
+    sky_knn_k: int = 5
+
+    # Reject above this cosine distance. Set from a leave-one-out sweep over
+    # the reference photographs: it is their 95th-percentile distance, so
+    # roughly 1 in 20 genuine sky photos is refused, and 93% of the non-sky
+    # evaluation set is caught. Lower it to refuse more aggressively.
+    sky_distance_threshold: float = 0.78
+
     # ── Auth ─────────────────────────────────────────────────────────
     # HS256 signing key for access tokens. Empty means "generate a random key
     # at startup", so sessions survive only until the process restarts. Set a
@@ -89,6 +104,12 @@ class Settings(BaseSettings):
         """Resolve model_path relative to the backend/ directory."""
         base = Path(__file__).resolve().parent.parent  # backend/
         return (base / self.model_path).resolve()
+
+    @property
+    def sky_bank_abs_path(self) -> Path:
+        """Resolve sky_bank_path relative to the backend/ directory."""
+        base = Path(__file__).resolve().parent.parent  # backend/
+        return (base / self.sky_bank_path).resolve()
 
     @property
     def db_abs_path(self) -> Path:

@@ -54,6 +54,12 @@ class AirQualityModel(nn.Module):
         return torch.flatten(x, 1)
 
     @torch.no_grad()
+    def features(self, tensor: torch.Tensor) -> torch.Tensor:
+        """Pooled backbone features. Shared by the regression head and the
+        out-of-distribution gate, so the backbone runs once per image."""
+        return self._features(tensor)
+
+    @torch.no_grad()
     def predict(self, tensor: torch.Tensor) -> float:
         """
         Runs inference on a preprocessed image tensor.
@@ -62,19 +68,20 @@ class AirQualityModel(nn.Module):
         return self.head(self._features(tensor)).item()
 
     @torch.no_grad()
-    def predict_with_uncertainty(self, tensor: torch.Tensor, n_samples: int = 20) -> tuple[float, float]:
+    def predict_with_uncertainty(self, features: torch.Tensor, n_samples: int = 20) -> tuple[float, float]:
         """
-        Monte-Carlo dropout estimate of prediction uncertainty.
+        Monte-Carlo dropout estimate of prediction uncertainty, over features
+        already produced by features().
 
-        The backbone is deterministic and runs once; only the dropout-bearing
-        head is re-sampled, so the extra cost over predict() is negligible.
+        Only the dropout-bearing head is re-sampled, so the extra cost over a
+        single head pass is negligible.
 
         Returns (mean, std) of the raw head output across n_samples passes.
         A wide spread means the features land in a region the head has not
-        learned confidently — the basis for a real confidence score.
+        learned confidently. Note this measures head stability only — it says
+        nothing about whether the image belongs to the model's domain, which
+        is what SkyReferenceBank is for.
         """
-        features = self._features(tensor)
-
         dropouts = [m for m in self.head.modules() if isinstance(m, nn.Dropout)]
         if not dropouts or n_samples < 2:
             # No stochastic layers to sample: uncertainty is unavailable.

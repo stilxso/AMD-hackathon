@@ -76,6 +76,21 @@ async def analyze_image(
             # Undecodable image is a client error, not a server fault.
             raise HTTPException(status_code=400, detail=str(e))
 
+        # The regressor has no reject option, so a carpet or a keyboard maps to
+        # a perfectly ordinary PM2.5 number. Refuse here rather than hand back
+        # an estimate the user has no way to recognise as meaningless. This
+        # applies in nn_only mode too: that mode exists to show the model's own
+        # answer, and its own answer for a non-sky photo is "I can't tell".
+        if not ml_result.is_sky:
+            logger.info(
+                "Rejected non-sky upload: sky_distance=%.3f", ml_result.sky_distance,
+            )
+            raise HTTPException(
+                status_code=422,
+                detail="This photo doesn't look like the sky. Point the camera "
+                       "upward at open sky or a skyline and try again.",
+            )
+
         if nn_only:
             weather = None
             fusion = None
@@ -117,6 +132,7 @@ async def analyze_image(
             "raw_ai_pm25": raw_pm25,
             "pm25_uncertainty": round(ml_result.uncertainty, 1),
             "out_of_distribution": ml_result.out_of_distribution,
+            "sky_distance": round(ml_result.sky_distance, 3),
             "fusion_method": "nn_only",
             "stations_used": 0,
             "nearby_stations": [],
@@ -132,6 +148,7 @@ async def analyze_image(
         "raw_ai_pm25": round(ml_result.pm25_estimate, 1),
         "pm25_uncertainty": round(ml_result.uncertainty, 1),
         "out_of_distribution": ml_result.out_of_distribution,
+        "sky_distance": round(ml_result.sky_distance, 3),
         "fusion_method": fusion.fusion_method,
         "stations_used": fusion.stations_used,
         # Only stations the fusion actually used. Reporting the unfiltered

@@ -8,7 +8,7 @@ import mapboxgl from "mapbox-gl";
 import { AlertTriangle } from "lucide-react";
 import type { Coords, GridPoint, SourceHealth, Station, StationsResponse } from "@/types";
 import { useI18n } from "@/lib/i18n";
-import { ALARM, AQI_GRADIENT } from "@/lib/utils";
+import { ALARM } from "@/lib/utils";
 
 type Props = {
   coords: Coords;
@@ -24,17 +24,23 @@ const BBOX_PAD = 0.35;
 // intermediate frame of a pan queues its own request.
 const REFETCH_DEBOUNCE_MS = 350;
 
-// AQI stops shared by the field, station dots and legend. Severity reads as
-// density here, not hue — see aqiTone. The two must stay in step, or the map
-// and the readout will disagree about the same air.
+// AQI stops shared by the field, station dots and legend.
+//
+// The rest of the product reads severity as density (see aqiTone), but over a
+// map that ramp tops out at white — and white over a basemap is the one colour
+// that cannot be told apart from roads, labels and snow. So the map alone runs
+// green → red, where the hue itself carries the severity.
 const AQI_STEPS: Array<[number, string]> = [
-  [0, "#6f6f6f"],
-  [50, "#9c9c9c"],
-  [100, "#cfcfcf"],
-  [150, "#ffffff"],
+  [0, "#12c06a"],
+  [50, "#93d227"],
+  [100, "#f2c200"],
+  [150, "#ff8a00"],
   [200, ALARM],
-  [300, "#ff1f10"],
+  [300, "#a5000f"],
 ];
+
+/** The map's own ramp as CSS, so the legend cannot drift from the field. */
+const MAP_GRADIENT = `linear-gradient(90deg,${AQI_STEPS.map(([, hex]) => hex).join(",")})`;
 
 const EMPTY: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
@@ -294,7 +300,7 @@ export default function MapView({ coords, aqi }: Props) {
           source: "grid",
           type: "raster",
           paint: {
-            "raster-opacity": 0.55,
+            "raster-opacity": 0.62,
             // Cross-fading between the old and new image on every viewport
             // change reads as a flicker.
             "raster-fade-duration": 0,
@@ -570,7 +576,7 @@ export default function MapView({ coords, aqi }: Props) {
       {/* pollution legend */}
       <div className="absolute bottom-3 left-3 z-[5] border border-white/15 bg-black/70 px-3 py-2.5 backdrop-blur-md">
         <div className="lp-mono mb-2 text-white/45">{t.pollutionLayer}</div>
-        <div className="h-1.5 w-40" style={{ background: AQI_GRADIENT }} />
+        <div className="h-1.5 w-40" style={{ background: MAP_GRADIENT }} />
         <div className="lp-mono mt-1.5 flex justify-between text-white/45">
           <span>{t.low}</span>
           <span>{t.high}</span>
