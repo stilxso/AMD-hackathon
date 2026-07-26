@@ -17,6 +17,16 @@ logger = logging.getLogger("airq.services.aq")
 SourceStatus = Literal["ok", "empty", "disabled", "unauthorized", "error"]
 
 
+class AirQualityUnavailable(Exception):
+    """
+    An upstream could not answer a single-station lookup.
+
+    The fan-out fetchers degrade instead of raising — a dead source there just
+    means fewer dots. The lookup endpoints have no other source to fall back on,
+    so they surface the failure to the caller.
+    """
+
+
 @dataclass
 class SourceResult:
     """One upstream's outcome, so the caller can report why data is missing."""
@@ -116,13 +126,15 @@ class WaqiClient:
 
                 dist = haversine(lat, lng, st_lat, st_lng)
 
+                idx = d.get("idx")
                 return SourceResult(name=name_, status="ok", stations=[StationData(
                     lat=st_lat,
                     lng=st_lng,
                     pm25=pm25_val,
                     distance_km=dist,
                     name=name,
-                    source="waqi"
+                    source="waqi",
+                    uid=str(idx) if idx is not None else None,
                 )])
         except Exception as e:
             return _classify_http_error(name_, e)
@@ -172,13 +184,15 @@ class WaqiClient:
                     st_lat, st_lng = float(st_lat), float(st_lng)
                     name = r.get("station", {}).get("name", "Unknown Station")
 
+                    uid = r.get("uid")
                     stations.append(StationData(
                         lat=st_lat,
                         lng=st_lng,
                         pm25=aqi_to_pm25(aqi_val),
                         distance_km=haversine(lat, lng, st_lat, st_lng),
                         name=name,
-                        source="waqi"
+                        source="waqi",
+                        uid=str(uid) if uid is not None else None,
                     ))
         except Exception as e:
             return _classify_http_error(name_, e)
@@ -192,6 +206,121 @@ class WaqiClient:
             stations=stations,
             detail=detail,
         )
+
+    async def search(self, keyword: str, limit: int = 20) -> List[dict]:
+        """
+        Stations matching a free-text place name.
+
+        The map only ever answers "what is near this point"; this is what lets a
+        user look up a city they are not standing in. Returns raw-ish dicts
+        rather than StationData because there is no query point to measure a
+        distance from.
+        """
+        if not self.token:
+            raise AirQualityUnavailable("WAQI_API_TOKEN is not configured")
+
+        url = f"{self.base_url}/search/"
+        async with httpx.AsyncClient(timeout=6.0) as client:
+            resp = await client.get(url, params={"keyword": keyword, "token": self.token})
+            resp.raise_for_status()
+            data = resp.json()
+
+        if data.get("status") != "ok":
+            raise AirQualityUnavailable(str(data.get("data") or data.get("status"))[:120])
+
+        out: List[dict] = []
+        for r in data.get("data", [])[:limit]:
+            station = r.get("station", {})
+            geo = station.get("geo") or []
+            try:
+                aqi_val = float(r.get("aqi"))
+            except (TypeError, ValueError):
+                # Offline stations report "-"; they are still worth listing so a
+                # search for a city does not look like the city is unmonitored.
+                aqi_val = None
+
+            out.append({
+                "uid": str(r.get("uid")),
+                "name": station.get("name", "Unknown Station"),
+                "country": station.get("country"),
+                "lat": float(geo[0]) if len(geo) == 2 else None,
+                "lng": float(geo[1]) if len(geo) == 2 else None,
+                "aqi": int(aqi_val) if aqi_val is not None else None,
+                "pm25": round(aqi_to_pm25(aqi_val), 1) if aqi_val is not None else None,
+                # The search feed puts the timestamp on the result, not on the
+                # nested station object the way /feed does.
+                "updatedAt": (r.get("time") or {}).get("stime"),
+            })
+        return out
+
+    async def get_by_uid(self, uid: str) -> dict:
+        """
+        One station's full record: every pollutant it publishes, its weather
+        readings and WAQI's own forecast series.
+
+        /stations returns a single fused PM2.5 per dot. This is what a station
+        popup needs to say what else that monitor measures.
+        """
+        if not self.token:
+            raise AirQualityUnavailable("WAQI_API_TOKEN is not configured")
+
+        url = f"{self.base_url}/feed/@{uid}/"
+        async with httpx.AsyncClient(timeout=6.0) as client:
+            resp = await client.get(url, params={"token": self.token})
+            resp.raise_for_status()
+            data = resp.json()
+
+        if data.get("status") != "ok":
+            raise AirQualityUnavailable(str(data.get("data") or data.get("status"))[:120])
+
+        d = data.get("data", {})
+        city = d.get("city", {})
+        geo = city.get("geo") or []
+        iaqi = d.get("iaqi", {})
+
+        def _value(key: str) -> Optional[float]:
+            entry = iaqi.get(key)
+            if not isinstance(entry, dict) or "v" not in entry:
+                return None
+            try:
+                return float(entry["v"])
+            except (TypeError, ValueError):
+                return None
+
+        # iaqi values are sub-indices, not concentrations — except for the
+        # meteorological keys, which are the raw measurements. Keeping the two
+        # groups apart stops a temperature being read as an AQI.
+        pollutant_keys = ("pm25", "pm10", "o3", "no2", "so2", "co")
+        weather_keys = {"t": "temperature", "h": "humidity", "w": "windSpeed", "p": "pressure"}
+
+        try:
+            overall_aqi = int(float(d.get("aqi")))
+        except (TypeError, ValueError):
+            overall_aqi = None
+
+        pm25_index = _value("pm25")
+        return {
+            "uid": str(d.get("idx", uid)),
+            "name": city.get("name", "Unknown Station"),
+            "url": city.get("url"),
+            "lat": float(geo[0]) if len(geo) == 2 else None,
+            "lng": float(geo[1]) if len(geo) == 2 else None,
+            "aqi": overall_aqi,
+            "pm25": round(aqi_to_pm25(pm25_index), 1) if pm25_index is not None else None,
+            "dominantPollutant": d.get("dominentpol"),
+            "updatedAt": (d.get("time") or {}).get("iso"),
+            "pollutants": {k: _value(k) for k in pollutant_keys if _value(k) is not None},
+            "weather": {
+                label: _value(key) for key, label in weather_keys.items()
+                if _value(key) is not None
+            },
+            "attribution": [
+                {"name": a.get("name"), "url": a.get("url")}
+                for a in d.get("attributions", [])
+            ],
+            # WAQI publishes a daily min/avg/max forecast per pollutant.
+            "forecast": (d.get("forecast") or {}).get("daily", {}),
+        }
 
 class OpenAQClient:
     def __init__(self, api_key: str):

@@ -5,9 +5,15 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.services.air_quality import fetch_air_quality
+from app.config import settings
+from app.services.air_quality import (
+    AirQualityUnavailable,
+    WaqiClient,
+    fetch_air_quality,
+)
 from app.services.fusion import pm25_to_aqi
 from app.services.grid import cell_size_deg, fetch_pm25_grid, fetch_pm25_grid_bbox
+from app.services.timeseries import TimeseriesError, fetch_pm25_series
 
 logger = logging.getLogger("airq.api")
 router = APIRouter()
@@ -109,6 +115,7 @@ async def list_stations(
                 "name": s.name,
                 "source": s.source,
                 "kind": s.kind,
+                "uid": s.uid,
             }
             for s in in_range
         ],
@@ -134,5 +141,137 @@ async def list_stations(
                 "detail": s.detail,
             }
             for s in aq.sources
+        ],
+    }
+
+
+# The lookup endpoints below stay unauthenticated for the same reason /stations
+# is: they proxy public environmental feeds and the map uses them before a login
+# exists.
+
+
+@router.get("/stations/search")
+async def search_stations(
+    q: str = Query(..., min_length=2, max_length=64, description="City or station name"),
+    limit: int = Query(20, ge=1, le=50),
+):
+    """
+    Find monitors by place name.
+
+    Everything else in the API answers "what is near this coordinate", which
+    cannot serve a user asking about a city they are not in.
+    """
+    try:
+        results = await WaqiClient(settings.waqi_api_token).search(q, limit)
+    except AirQualityUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except Exception as exc:
+        logger.error("Station search failed for %r: %s", q, exc)
+        raise HTTPException(status_code=502, detail="Station search is unavailable")
+
+    return {"query": q, "count": len(results), "results": results}
+
+
+@router.get("/stations/detail")
+async def station_detail(uid: str = Query(..., min_length=1, max_length=32)):
+    """
+    One monitor's full record — every pollutant it publishes, its own weather
+    readings, attribution and WAQI's daily forecast.
+
+    `uid` comes from the `uid` field on a station in /stations.
+    """
+    try:
+        return await WaqiClient(settings.waqi_api_token).get_by_uid(uid)
+    except AirQualityUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except Exception as exc:
+        logger.error("Station detail failed for uid=%r: %s", uid, exc)
+        raise HTTPException(status_code=502, detail="Station detail is unavailable")
+
+
+@router.get("/stations/history")
+async def station_history(
+    latitude: float = Query(..., ge=-90.0, le=90.0),
+    longitude: float = Query(..., ge=-180.0, le=180.0),
+    hours: int = Query(24, ge=1, le=168, description="Hours of history to return"),
+    forecast_hours: int = Query(0, ge=0, le=96),
+):
+    """
+    Hourly pollutant concentrations at a point, oldest first, with an optional
+    forecast tail.
+
+    The values are modelled (CAMS via Open-Meteo), not measured at a monitor —
+    the station feeds publish only a current value, so a measured series is not
+    available. Present it as a model estimate.
+    """
+    try:
+        series = await fetch_pm25_series(latitude, longitude, hours, forecast_hours)
+    except TimeseriesError as exc:
+        raise HTTPException(status_code=502, detail=f"History is unavailable: {exc}")
+
+    hours_out = [
+        {**p.model_dump(), "aqi": pm25_to_aqi(p.pm25) if p.pm25 is not None else None}
+        for p in series.hours
+    ]
+    values = [p.pm25 for p in series.hours if p.pm25 is not None]
+
+    return {
+        "latitude": series.latitude,
+        "longitude": series.longitude,
+        "source": series.source,
+        "kind": "model",
+        "count": len(hours_out),
+        "hours": hours_out,
+        "summary": {
+            "meanPm25": round(sum(values) / len(values), 1) if values else None,
+            "maxPm25": max(values) if values else None,
+            "minPm25": min(values) if values else None,
+            "meanAqi": pm25_to_aqi(sum(values) / len(values)) if values else None,
+        },
+    }
+
+
+@router.get("/stations/ranking")
+async def station_ranking(
+    latitude: float = Query(..., ge=-90.0, le=90.0),
+    longitude: float = Query(..., ge=-180.0, le=180.0),
+    radius_km: int = Query(50, ge=1, le=200),
+    order: str = Query("worst", pattern="^(worst|best|nearest)$"),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """
+    Nearby monitors ranked by how dirty the air at them is.
+
+    /stations returns everything in view unordered by severity, which leaves the
+    client to answer "where is the worst air around me" itself. Only physical
+    sensors are ranked — the model sources all sit on the query coordinate, so
+    including them would rank the same point against itself.
+    """
+    aq = await fetch_air_quality(latitude, longitude, radius_km)
+    sensors = [s for s in aq.stations if s.kind == "sensor" and s.distance_km <= radius_km]
+
+    if order == "worst":
+        sensors.sort(key=lambda s: s.pm25, reverse=True)
+    elif order == "best":
+        sensors.sort(key=lambda s: s.pm25)
+    else:
+        sensors.sort(key=lambda s: s.distance_km)
+
+    return {
+        "order": order,
+        "radiusKm": radius_km,
+        "count": len(sensors),
+        "stations": [
+            {
+                "lat": s.lat,
+                "lng": s.lng,
+                "pm25": round(s.pm25, 1),
+                "aqi": pm25_to_aqi(s.pm25),
+                "distanceKm": round(s.distance_km, 1),
+                "name": s.name,
+                "source": s.source,
+                "uid": s.uid,
+            }
+            for s in sensors[:limit]
         ],
     }

@@ -9,6 +9,9 @@ export type AnalyzeResponse = {
    *  blending or weather correction applied. */
   fusion_method?: string;
   stations_used?: number;
+  /** Row id of the scan in the user's history. Null when the write failed —
+   *  history is a side effect of an analysis, never a precondition for one. */
+  analysis_id?: number | null;
 };
 
 export type Coords = { latitude: number; longitude: number };
@@ -24,6 +27,9 @@ export type Station = {
   name: string;
   source: string;
   kind: "sensor" | "model";
+  /** WAQI station id, when the feed publishes one. Required by
+   *  /api/v1/stations/detail; null for modelled points, which are not monitors. */
+  uid: string | null;
 };
 
 /** One cell of the modelled PM2.5 field. The station network is far too sparse
@@ -112,4 +118,173 @@ export type PresetLocation = {
   key: "astana" | "almaty" | "karaganda";
   label: string;
   coords: Coords;
+};
+
+// ── Personal cabinet ──────────────────────────────────────────────────
+
+/** One past scan, as the owner sees it. Includes the model diagnostics that
+ *  the community view deliberately omits. */
+export type AnalysisRecord = {
+  id: number;
+  createdAt: string;
+  latitude: number;
+  longitude: number;
+  aqi: number;
+  pm25: number;
+  rawAiPm25: number | null;
+  uncertainty: number | null;
+  confidence: number | null;
+  skyScore: number | null;
+  statusText: string | null;
+  fusionMethod: string | null;
+  stationsUsed: number;
+  place: string | null;
+  isPublic: boolean;
+  hasThumbnail: boolean;
+  /** Needs the bearer token — render it through an authorised blob fetch, not
+   *  a bare <img src>, which the browser sends without the Authorization header. */
+  thumbnailUrl: string | null;
+};
+
+export type AnalysesResponse = {
+  total: number;
+  count: number;
+  limit: number;
+  offset: number;
+  analyses: AnalysisRecord[];
+};
+
+export type CabinetStats = {
+  analyses: number;
+  shared_analyses: number;
+  reports: number;
+  saved_locations: number;
+  /** Null on a fresh account — no scans means no average, which is not zero. */
+  avg_aqi: number | null;
+  worst_aqi: number | null;
+  best_aqi: number | null;
+  last_analysis_at: string | null;
+};
+
+export type TrendPoint = { at: string; aqi: number; pm25: number };
+
+export type CabinetProfile = {
+  user: AuthUser;
+  stats: CabinetStats;
+  /** Oldest-first, for the sparkline. */
+  trend: TrendPoint[];
+};
+
+export type SavedLocation = {
+  id: number;
+  name: string;
+  latitude: number;
+  longitude: number;
+  createdAt: string;
+};
+
+// ── Crowdsourcing ─────────────────────────────────────────────────────
+
+/** How a reporter judges the air. Ordered worst-last, matching the backend. */
+export type PerceivedLevel = "good" | "moderate" | "poor" | "severe";
+
+export const PERCEIVED_LEVELS: PerceivedLevel[] = ["good", "moderate", "poor", "severe"];
+
+export type CommunityReport = {
+  id: number;
+  username: string;
+  createdAt: string;
+  latitude: number;
+  longitude: number;
+  perceived: PerceivedLevel;
+  visibilityKm: number | null;
+  symptoms: string[];
+  note: string | null;
+};
+
+/** A scan its owner published. Narrower than AnalysisRecord on purpose: the
+ *  model diagnostics are for the person who took the photo, not for the map. */
+export type SharedAnalysis = {
+  id: number;
+  username: string;
+  createdAt: string;
+  latitude: number;
+  longitude: number;
+  aqi: number;
+  pm25: number;
+  statusText: string | null;
+  place: string | null;
+  thumbnailUrl: string | null;
+};
+
+export type CommunitySummary = {
+  hours: number;
+  reports: number;
+  sharedAnalyses: number;
+  perceived: Record<PerceivedLevel, number>;
+  /** Most-reported level, ties resolving to the more severe side. Null with no
+   *  reports — do not render it as "good". */
+  consensus: PerceivedLevel | null;
+  meanVisibilityKm: number | null;
+  sharedMeanPm25: number | null;
+  sharedMeanAqi: number | null;
+};
+
+// ── Station lookups ───────────────────────────────────────────────────
+
+export type StationSearchResult = {
+  uid: string;
+  name: string;
+  country: string | null;
+  lat: number | null;
+  lng: number | null;
+  /** Null for a monitor that is currently offline — WAQI reports "-". */
+  aqi: number | null;
+  pm25: number | null;
+  updatedAt: string | null;
+};
+
+export type StationDetail = {
+  uid: string;
+  name: string;
+  url: string | null;
+  lat: number | null;
+  lng: number | null;
+  aqi: number | null;
+  pm25: number | null;
+  dominantPollutant: string | null;
+  updatedAt: string | null;
+  /** Sub-indices, not concentrations — except pm25, which is converted. */
+  pollutants: Record<string, number>;
+  weather: Record<string, number>;
+  attribution: Array<{ name: string | null; url: string | null }>;
+  forecast: Record<string, Array<{ day: string; avg: number; min: number; max: number }>>;
+};
+
+export type HistoryPoint = {
+  at: string;
+  pm25: number | null;
+  pm10: number | null;
+  o3: number | null;
+  no2: number | null;
+  so2: number | null;
+  co: number | null;
+  aqi: number | null;
+};
+
+/** Modelled, not measured — the station feeds publish only a current value.
+ *  Anything showing this next to a monitor reading has to say so. */
+export type StationHistory = {
+  latitude: number;
+  longitude: number;
+  source: string;
+  kind: "model";
+  count: number;
+  hours: HistoryPoint[];
+  summary: {
+    meanPm25: number | null;
+    maxPm25: number | null;
+    minPm25: number | null;
+    meanAqi: number | null;
+  };
 };

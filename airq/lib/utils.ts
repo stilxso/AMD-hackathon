@@ -24,13 +24,19 @@ export type AqiTone = {
  * number is pure white it is already unhealthy. Beyond 200 the ramp breaks into
  * the single alarm colour, which appears nowhere else in the product.
  */
-export function aqiTone(score: number): AqiTone {
-  if (score <= 50)  return { hex: "#6f6f6f", step: 1, alarm: false };
-  if (score <= 100) return { hex: "#9c9c9c", step: 2, alarm: false };
-  if (score <= 150) return { hex: "#cfcfcf", step: 3, alarm: false };
-  if (score <= 200) return { hex: "#ffffff", step: 4, alarm: false };
-  if (score <= 300) return { hex: ALARM,     step: 5, alarm: true };
-  return              { hex: "#ff1f10",      step: 6, alarm: true };
+export function aqiTone(score: number, theme: "dark" | "light" = "dark"): AqiTone {
+  // Same idea on the light theme, mirrored: contrast against the page is what
+  // carries severity, so there the ramp darkens instead of brightening.
+  const ramp = theme === "light"
+    ? ["#a3a3a3", "#737373", "#3f3f3f", "#0c0c0c"]
+    : ["#6f6f6f", "#9c9c9c", "#cfcfcf", "#ffffff"];
+
+  if (score <= 50)  return { hex: ramp[0], step: 1, alarm: false };
+  if (score <= 100) return { hex: ramp[1], step: 2, alarm: false };
+  if (score <= 150) return { hex: ramp[2], step: 3, alarm: false };
+  if (score <= 200) return { hex: ramp[3], step: 4, alarm: false };
+  if (score <= 300) return { hex: ALARM,   step: 5, alarm: true };
+  return              { hex: "#ff1f10",    step: 6, alarm: true };
 }
 
 /** The ramp as CSS, shared by every gradient that shows the scale. */

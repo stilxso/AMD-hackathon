@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { animate, motion, useMotionValue, useTransform } from "framer-motion";
 import { SwapAction } from "@/components/landing/magnetic";
 import { aqiTone, cn } from "@/lib/utils";
+import { useTheme } from "@/lib/theme";
 import { aqiLabel, useI18n } from "@/lib/i18n";
 import type { AnalyzeResponse, Coords } from "@/types";
 
@@ -18,7 +19,8 @@ const SEGMENTS = 6;
 
 export function ResultsCard({ result, imageUrl, coords, onReset }: Props) {
   const { t } = useI18n();
-  const tone = aqiTone(result.aqi_score);
+  const { theme } = useTheme();
+  const tone = aqiTone(result.aqi_score, theme);
   const label = aqiLabel(t, result.aqi_score);
   // Without this the two modes produce visually identical cards, and a raw
   // model score is easy to mistake for a corroborated one.
@@ -61,7 +63,7 @@ export function ResultsCard({ result, imageUrl, coords, onReset }: Props) {
               animate={{ scaleX: 1 }}
               transition={{ duration: 0.5, delay: 0.25 + i * 0.06, ease: [0.16, 1, 0.3, 1] }}
               className="h-1 flex-1 origin-left"
-              style={{ background: i < tone.step ? tone.hex : "rgba(255,255,255,0.1)" }}
+              style={{ background: i < tone.step ? tone.hex : "rgb(var(--fg-rgb) / 0.1)" }}
             />
           ))}
         </div>

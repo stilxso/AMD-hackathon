@@ -5,10 +5,12 @@ import mapboxgl from "mapbox-gl";
 // mapbox-gl.css is imported globally in app/globals.css — importing it here
 // instead would ship it inside this component's on-demand chunk, so it can
 // arrive after the map already initialized (canvas sizes/positions wrong).
-import { AlertTriangle, Route } from "lucide-react";
+import { AlertTriangle, Route, Users } from "lucide-react";
 import type {
+  CommunityReport,
   Coords,
   GridPoint,
+  SharedAnalysis,
   RouteProfile,
   RouteResponse,
   SourceHealth,
@@ -18,12 +20,18 @@ import type {
 import { RoutePanel } from "@/components/RoutePanel";
 import { useAuth } from "@/lib/auth";
 import { useI18n } from "@/lib/i18n";
+import { useTheme } from "@/lib/theme";
+import { fetchReports, fetchSharedAnalyses, PERCEIVED_COLOR } from "@/lib/community";
 import { planRoute, routesToGeoJSON } from "@/lib/route";
 import { ALARM } from "@/lib/utils";
 
 type Props = {
   coords: Coords;
   aqi?: number;
+  /** Bumped by the parent when a report is filed. The crowd layer otherwise
+   *  only refetches when the viewport moves, so a pin dropped where the user is
+   *  standing would not appear until they panned the map. */
+  communityVersion?: number;
 };
 
 const TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
@@ -71,6 +79,58 @@ function toGeoJSON(stations: Station[]): GeoJSON.FeatureCollection {
       geometry: { type: "Point", coordinates: [s.lng, s.lat] },
     })),
   };
+}
+
+/**
+ * The crowd layer: reports and shared scans in one source.
+ *
+ * They share a layer because they answer the same question — what are people
+ * here saying — but `ctype` keeps them distinguishable, since one is an opinion
+ * and the other is a measurement someone chose to publish.
+ */
+function communityGeoJSON(
+  reports: CommunityReport[],
+  shared: SharedAnalysis[],
+): GeoJSON.FeatureCollection {
+  return {
+    type: "FeatureCollection",
+    features: [
+      ...reports.map((r) => ({
+        type: "Feature" as const,
+        properties: {
+          ctype: "report",
+          color: PERCEIVED_COLOR[r.perceived],
+          title: r.username,
+          detail: r.note ?? "",
+          level: r.perceived,
+          visibilityKm: r.visibilityKm ?? -1,
+          at: r.createdAt,
+        },
+        geometry: { type: "Point" as const, coordinates: [r.longitude, r.latitude] },
+      })),
+      ...shared.map((a) => ({
+        type: "Feature" as const,
+        properties: {
+          ctype: "shared",
+          color: rampHex(a.aqi),
+          title: a.username,
+          detail: a.statusText ?? "",
+          aqi: a.aqi,
+          pm25: a.pm25,
+          at: a.createdAt,
+        },
+        geometry: { type: "Point" as const, coordinates: [a.longitude, a.latitude] },
+      })),
+    ],
+  };
+}
+
+/** The map ramp as a hex string, for features coloured in JS rather than by a
+ *  paint expression. */
+function rampHex(aqi: number): string {
+  let hex = AQI_STEPS[0][1];
+  for (const [stop, value] of AQI_STEPS) if (aqi >= stop) hex = value;
+  return hex;
 }
 
 type Bbox = { minLat: number; minLng: number; maxLat: number; maxLng: number };
@@ -201,13 +261,20 @@ function endpointMarker(letter: string): HTMLDivElement {
   const el = document.createElement("div");
   el.textContent = letter;
   el.style.cssText =
-    "display:grid;place-items:center;width:22px;height:22px;border:1px solid rgba(255,255,255,.9);" +
-    "background:#000;color:#fff;font:600 11px ui-monospace,monospace;border-radius:50%";
+    "display:grid;place-items:center;width:22px;height:22px;" +
+    "border:1px solid rgb(var(--fg-rgb) / .9);background:rgb(var(--bg-rgb));" +
+    "color:rgb(var(--fg-rgb));font:600 11px ui-monospace,monospace;border-radius:50%";
   return el;
 }
 
-export default function MapView({ coords, aqi }: Props) {
+export default function MapView({ coords, aqi, communityVersion = 0 }: Props) {
   const { t } = useI18n();
+  // The parent remounts this component on a theme change (see app/page.tsx), so
+  // the basemap and the ink below are read once and never go stale.
+  const { theme } = useTheme();
+  const light = theme === "light";
+  /** Line/stroke colour for everything drawn over the basemap. */
+  const ink = (alpha: number) => (light ? `rgba(18,18,18,${alpha})` : `rgba(255,255,255,${alpha})`);
   const { authFetch } = useAuth();
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -221,6 +288,12 @@ export default function MapView({ coords, aqi }: Props) {
   // whatever spacing was actually used.
   const [cellDeg, setCellDeg] = useState(0.1);
   const [sources, setSources] = useState<SourceHealth[]>([]);
+  // ---- crowd layer ----
+  const [reports, setReports] = useState<CommunityReport[]>([]);
+  const [shared, setShared] = useState<SharedAnalysis[]>([]);
+  // On by default: an empty crowd layer costs nothing visually, and a layer the
+  // user has to discover a toggle for is a layer nobody sees.
+  const [showCommunity, setShowCommunity] = useState(true);
   const [loading, setLoading] = useState(false);
   // A failed fetch used to be indistinguishable from a clean, unmonitored area:
   // the catch below emptied the readings and the badge then read "modelled".
@@ -287,6 +360,27 @@ export default function MapView({ coords, aqi }: Props) {
     return () => ctrl.abort();
   }, [bbox, coords.latitude, coords.longitude]);
 
+  // ---- fetch the crowd layer for the same box ----
+  //
+  // Separate from the readings fetch on purpose: these are local database reads
+  // that always succeed fast, and pairing them with the five-upstream fan-out
+  // would hold the pins back behind whichever external API is slowest.
+  useEffect(() => {
+    if (!bbox || !showCommunity) return;
+    const ctrl = new AbortController();
+
+    Promise.all([
+      fetchReports(bbox, 24, ctrl.signal).catch(() => [] as CommunityReport[]),
+      fetchSharedAnalyses(bbox, 48, ctrl.signal).catch(() => [] as SharedAnalysis[]),
+    ]).then(([r, a]) => {
+      if (ctrl.signal.aborted) return;
+      setReports(r);
+      setShared(a);
+    });
+
+    return () => ctrl.abort();
+  }, [bbox, showCommunity, communityVersion]);
+
   // ---- init map once ----
   useEffect(() => {
     if (!TOKEN || !containerRef.current || mapRef.current) return;
@@ -294,7 +388,7 @@ export default function MapView({ coords, aqi }: Props) {
 
     const map = new mapboxgl.Map({
       container: containerRef.current,
-      style: "mapbox://styles/mapbox/dark-v11",
+      style: light ? "mapbox://styles/mapbox/light-v11" : "mapbox://styles/mapbox/dark-v11",
       center: [coords.longitude, coords.latitude],
       zoom: 10,
       attributionControl: true,
@@ -361,7 +455,7 @@ export default function MapView({ coords, aqi }: Props) {
         source: "routes",
         filter: ["==", ["get", "role"], "other"],
         layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": "rgba(255,255,255,0.85)", "line-width": 1.5, "line-opacity": 0.28 },
+        paint: { "line-color": ink(0.85), "line-width": 1.5, "line-opacity": 0.28 },
       });
       map.addLayer({
         id: "routes-shortest",
@@ -370,7 +464,7 @@ export default function MapView({ coords, aqi }: Props) {
         filter: ["==", ["get", "role"], "shortest"],
         layout: { "line-cap": "butt", "line-join": "round" },
         paint: {
-          "line-color": "rgba(255,255,255,0.9)",
+          "line-color": ink(0.9),
           "line-width": 2.5,
           // Dashed: this is the route being compared against, not the advice.
           "line-dasharray": [1.6, 1.6],
@@ -382,7 +476,7 @@ export default function MapView({ coords, aqi }: Props) {
         source: "routes",
         filter: ["==", ["get", "role"], "recommended"],
         layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": "#000", "line-width": 8, "line-opacity": 0.6 },
+        paint: { "line-color": light ? "#fafaf9" : "#000", "line-width": 8, "line-opacity": 0.6 },
       });
       map.addLayer({
         id: "routes-recommended",
@@ -405,6 +499,63 @@ export default function MapView({ coords, aqi }: Props) {
           ],
           "line-width": 4.5,
         },
+      });
+
+      // The crowd layer sits under the station dots: a monitor reading must
+      // never be covered by an opinion pinned at the same place.
+      map.addSource("community", { type: "geojson", data: EMPTY });
+      map.addLayer({
+        id: "community-points",
+        type: "circle",
+        source: "community",
+        paint: {
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 8, 4, 16, 8],
+          "circle-color": ["get", "color"],
+          "circle-opacity": 0.75,
+          // A dashed outline is not available on circles, so the two kinds are
+          // told apart by ring weight: a shared scan carries a measurement and
+          // gets the heavier ring.
+          "circle-stroke-width": ["case", ["==", ["get", "ctype"], "shared"], 2, 1],
+          "circle-stroke-color": ink(0.55),
+        },
+      });
+
+      const communityPopup = new mapboxgl.Popup({
+        closeButton: false,
+        closeOnClick: false,
+        offset: 10,
+      });
+      map.on("mouseenter", "community-points", (e) => {
+        map.getCanvas().style.cursor = "pointer";
+        const f = e.features?.[0];
+        if (!f) return;
+        const p = f.properties as {
+          ctype: string; title: string; detail: string; aqi?: number;
+          pm25?: number; visibilityKm?: number;
+        };
+        const geom = f.geometry as { type: "Point"; coordinates: [number, number] };
+        const body =
+          p.ctype === "shared"
+            ? `<div>${t.aqi} <strong>${p.aqi}</strong> · PM2.5 ${p.pm25} µg/m³</div>`
+            : `<div>${t.communityLayer}${
+                p.visibilityKm != null && p.visibilityKm >= 0
+                  ? ` · ${t.communityVisibility} ${p.visibilityKm} km`
+                  : ""
+              }</div>`;
+        communityPopup
+          .setLngLat(geom.coordinates)
+          .setHTML(
+            `<div style="font-family:system-ui;font-size:12px;max-width:220px">
+               <div style="font-weight:600;margin-bottom:2px">${p.title}</div>
+               ${body}
+               ${p.detail ? `<div style="opacity:.65;margin-top:2px">${p.detail}</div>` : ""}
+             </div>`,
+          )
+          .addTo(map);
+      });
+      map.on("mouseleave", "community-points", () => {
+        map.getCanvas().style.cursor = "";
+        communityPopup.remove();
       });
 
       // One dot per real reading. Unlike the generated field these are few and
@@ -432,8 +583,8 @@ export default function MapView({ coords, aqi }: Props) {
           "circle-stroke-color": [
             "case",
             ["==", ["get", "kind"], "model"],
-            "rgba(255,255,255,0.9)",
-            "rgba(255,255,255,0.35)",
+            ink(0.9),
+            ink(0.35),
           ],
         },
       });
@@ -451,7 +602,7 @@ export default function MapView({ coords, aqi }: Props) {
         popup
           .setLngLat(geom.coordinates)
           .setHTML(
-            `<div style="font-family:system-ui;color:#fff;font-size:12px;max-width:220px">
+            `<div style="font-family:system-ui;font-size:12px;max-width:220px">
                <div style="font-weight:600;margin-bottom:2px">${p.name}</div>
                <div>${t.aqi} <strong>${p.aqi}</strong> · PM2.5 ${p.pm25} µg/m³</div>
                <div style="opacity:.65;margin-top:2px">${origin}</div>
@@ -530,7 +681,7 @@ export default function MapView({ coords, aqi }: Props) {
       .setLngLat([coords.longitude, coords.latitude])
       .setPopup(
         new mapboxgl.Popup({ offset: 18 }).setHTML(
-          `<div style="font-family:system-ui;color:#fff">
+          `<div style="font-family:system-ui">
              <div style="font-weight:600">${t.yourLocation}</div>
              ${aqi != null ? `<div style="font-size:12px;margin-top:2px">${t.aqi} <strong>${aqi}</strong></div>` : ""}
              <div style="font-family:ui-monospace,monospace;font-size:12px;margin-top:2px">${coords.latitude.toFixed(
@@ -593,6 +744,39 @@ export default function MapView({ coords, aqi }: Props) {
       map.off("sourcedata", retry);
     };
   }, [stations, grid, cellDeg]);
+
+  // ---- push the crowd layer into its source ----
+  //
+  // Same retry-on-sourcedata shape as the readings effect above, and for the
+  // same reason: isStyleLoaded() can be true before the "load" handler has run
+  // addSource, and a single attempt would silently drop the pins.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const apply = () => {
+      const src = map.getSource("community") as mapboxgl.GeoJSONSource | undefined;
+      if (!src || !map.getLayer("community-points")) return false;
+      src.setData(
+        (showCommunity ? communityGeoJSON(reports, shared) : EMPTY) as never,
+      );
+      map.setLayoutProperty(
+        "community-points",
+        "visibility",
+        showCommunity ? "visible" : "none",
+      );
+      return true;
+    };
+
+    if (apply()) return;
+    const retry = () => {
+      if (apply()) map.off("sourcedata", retry);
+    };
+    map.on("sourcedata", retry);
+    return () => {
+      map.off("sourcedata", retry);
+    };
+  }, [reports, shared, showCommunity]);
 
   // ---- route mode: pick the endpoints by clicking the map ----
   useEffect(() => {
@@ -779,6 +963,25 @@ export default function MapView({ coords, aqi }: Props) {
           <span>{t.low}</span>
           <span>{t.high}</span>
         </div>
+
+        {/* The crowd layer is opinions, not measurements — it gets its own
+            switch so it can be taken off the map entirely. */}
+        <button
+          type="button"
+          onClick={() => setShowCommunity((v) => !v)}
+          data-cursor="grow"
+          aria-pressed={showCommunity}
+          className={
+            "lp-mono mt-2.5 flex w-full items-center gap-2 border px-2 py-1 transition-colors " +
+            (showCommunity
+              ? "border-white/45 text-white/85"
+              : "border-white/12 text-white/35 hover:text-white/70")
+          }
+        >
+          <Users className="h-3 w-3" />
+          {t.communityLayer}
+          <span className="ml-auto tabular-nums">{reports.length + shared.length}</span>
+        </button>
       </div>
 
       {/* clean-route planner */}
@@ -807,7 +1010,7 @@ export default function MapView({ coords, aqi }: Props) {
       )}
 
       {/* vignette — pulls the basemap's edges back into the page's black */}
-      <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_80px_rgba(0,0,0,0.75)]" />
+      <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_80px_rgb(var(--bg-rgb)_/_0.75)]" />
     </div>
   );
 }

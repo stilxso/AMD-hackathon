@@ -136,7 +136,7 @@ const fade = {
 function Aperture() {
   return (
     <motion.svg {...fade} viewBox="0 0 400 400" className="absolute inset-0 h-full w-full">
-      <g fill="none" stroke="#fff">
+      <g fill="none" stroke="currentColor">
         <circle cx="200" cy="200" r="150" strokeOpacity="0.15" />
         <circle cx="200" cy="200" r="112" strokeOpacity="0.3" strokeDasharray="2 10" className="lp-noise-ring" style={{ transformOrigin: "200px 200px" }} />
         <circle cx="200" cy="200" r="74" strokeOpacity="0.55" />
@@ -158,7 +158,7 @@ function Aperture() {
         cx="200"
         cy="200"
         r="8"
-        fill="#fff"
+        fill="currentColor"
         animate={{ opacity: [1, 0.25, 1] }}
         transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
       />
@@ -186,7 +186,7 @@ function Analysis() {
         ))}
       </div>
       <motion.div
-        className="pointer-events-none absolute inset-x-10 h-px bg-white shadow-[0_0_24px_6px_rgba(255,255,255,0.45)]"
+        className="pointer-events-none absolute inset-x-10 h-px bg-white shadow-[0_0_24px_6px_rgb(var(--fg-rgb)_/_0.45)]"
         initial={{ top: "2.5rem" }}
         animate={{ top: ["2.5rem", "calc(100% - 2.5rem)", "2.5rem"] }}
         transition={{ duration: 3.6, repeat: Infinity, ease: "easeInOut" }}
@@ -200,12 +200,12 @@ function Grid() {
     <motion.svg {...fade} viewBox="0 0 400 400" className="absolute inset-0 h-full w-full">
       <defs>
         <pattern id="lp-grid" width="40" height="40" patternUnits="userSpaceOnUse">
-          <path d="M40 0H0V40" fill="none" stroke="#fff" strokeOpacity="0.12" />
+          <path d="M40 0H0V40" fill="none" stroke="currentColor" strokeOpacity="0.12" />
         </pattern>
       </defs>
       <rect width="400" height="400" fill="url(#lp-grid)" />
-      <path d="M0 250q80-60 150-20t250-70" fill="none" stroke="#fff" strokeOpacity="0.25" />
-      <path d="M0 300q110-40 190 10t210-30" fill="none" stroke="#fff" strokeOpacity="0.18" />
+      <path d="M0 250q80-60 150-20t250-70" fill="none" stroke="currentColor" strokeOpacity="0.25" />
+      <path d="M0 300q110-40 190 10t210-30" fill="none" stroke="currentColor" strokeOpacity="0.18" />
       {[3, 2, 1].map((r, i) => (
         <motion.circle
           key={r}
@@ -213,7 +213,7 @@ function Grid() {
           cy="200"
           r="20"
           fill="none"
-          stroke="#fff"
+          stroke="currentColor"
           strokeOpacity="0.6"
           initial={{ scale: 0.4, opacity: 0.8 }}
           animate={{ scale: [0.4, 3.4], opacity: [0.8, 0] }}
@@ -221,9 +221,9 @@ function Grid() {
           style={{ transformOrigin: "200px 200px" }}
         />
       ))}
-      <circle cx="200" cy="200" r="6" fill="#fff" />
+      <circle cx="200" cy="200" r="6" fill="currentColor" />
       {[80, 200, 320].map((x) => (
-        <text key={x} x={x} y="386" fill="#fff" fillOpacity="0.3" fontSize="9" fontFamily="monospace" textAnchor="middle">
+        <text key={x} x={x} y="386" fill="currentColor" fillOpacity="0.3" fontSize="9" fontFamily="monospace" textAnchor="middle">
           {(43.2 + x / 200).toFixed(3)}°
         </text>
       ))}

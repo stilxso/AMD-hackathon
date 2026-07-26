@@ -46,14 +46,40 @@ The backend was developed in 5 smaller, manageable stages:
 
 ## How to Run
 
-### Backend
+### Docker (recommended)
+
+Requires Docker with the Compose plugin. From the repo root:
+
+```bash
+cp backend/.env.example backend/.env   # then fill in your API tokens
+docker compose up --build
+```
+
+Frontend on `http://localhost:3000`, backend on `http://localhost:8000`
+(`/docs` for the OpenAPI UI). The frontend proxies `/api/v1/*` to the backend
+container, so no CORS setup is needed.
+
+The first build takes a few minutes — it installs CPU-only PyTorch and bakes the
+sky gate's CLIP encoder into the image so the first upload doesn't stall on a
+350 MB download. Later builds are cached.
+
+Notes:
+- The Mapbox token for the map comes from `airq/.env.local`
+  (`NEXT_PUBLIC_MAPBOX_TOKEN=pk...`). It's read at image build time, so re-run
+  `docker compose up --build` after changing it.
+- User accounts live in the `airq-db` Docker volume and survive rebuilds.
+  `docker compose down -v` wipes them.
+- `docker compose up --build backend` runs just the API if you want to keep the
+  frontend on `npm run dev`.
+
+### Backend (manual)
 1. Go into the backend directory: `cd backend`
 2. Create a virtual environment (optional but recommended): `python -m venv venv && source venv/bin/activate`
 3. Install dependencies: `pip install -r requirements.txt`
 4. Start the FastAPI server: `uvicorn app.main:app --host 0.0.0.1 --port 8000 --reload`
 *Note: Make sure `.env` is populated with the correct API keys for OpenWeather, Mapbox, and WAQI.*
 
-### Frontend
+### Frontend (manual)
 1. Go into the frontend directory: `cd airq`
 2. Install dependencies: `npm install`
 3. Run the development server: `npm run dev`

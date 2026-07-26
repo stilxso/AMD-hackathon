@@ -12,6 +12,8 @@ import { Header } from "@/components/Header";
 import { UploadDropzone } from "@/components/UploadDropzone";
 import { ScannerAnimation } from "@/components/ScannerAnimation";
 import { ResultsCard } from "@/components/ResultsCard";
+import { ExplainChat } from "@/components/ExplainChat";
+import { CommunityPanel } from "@/components/CommunityPanel";
 import { LocationFallback } from "@/components/LocationFallback";
 import { MapSkeleton } from "@/components/MapSkeleton";
 import { Cursor, Grain, ParticleField } from "@/components/landing/atmosphere";
@@ -19,6 +21,7 @@ import { SwapAction } from "@/components/landing/magnetic";
 import { MaskLine } from "@/components/landing/type";
 import { useAuth } from "@/lib/auth";
 import { useI18n } from "@/lib/i18n";
+import { useTheme } from "@/lib/theme";
 import type { AnalyzeResponse, Coords, PresetLocation } from "@/types";
 
 import "./mono.css";
@@ -58,6 +61,7 @@ const OVERRIDE_KEY = "airq.admin.coordsOverride";
 
 function AirQApp() {
   const { t } = useI18n();
+  const { theme } = useTheme();
   const { authFetch, user } = useAuth();
 
   const [phase, setPhase] = useState<Phase>("idle");
@@ -72,6 +76,8 @@ function AirQApp() {
   // Admin-set coordinates. Wins over the geolocation watch while set; the watch
   // keeps running underneath so clearing snaps back without a re-prompt.
   const [override, setOverride] = useState<Coords | null>(null);
+  // Bumped when a community report is filed, so the map redraws its crowd layer.
+  const [communityVersion, setCommunityVersion] = useState(0);
 
   // How much particulate hangs behind the whole page (1 = clean air). Idle sits
   // in a deliberate haze; a finished scan animates it to the measured value, so
@@ -246,7 +252,7 @@ function AirQApp() {
         <ParticleField clear={clarity} />
         <div
           className="absolute inset-0"
-          style={{ background: "radial-gradient(closest-side, transparent 30%, rgba(0,0,0,0.85) 100%)" }}
+          style={{ background: "radial-gradient(closest-side, transparent 30%, rgb(var(--bg-rgb) / 0.85) 100%)" }}
         />
       </div>
 
@@ -337,6 +343,21 @@ function AirQApp() {
                   </div>
                 )}
               </motion.div>
+
+              {/* Deliberately outside the phase-keyed block above: remounting on
+                  every phase change would wipe the transcript the moment a new
+                  scan starts. */}
+              <ExplainChat
+                coords={effectiveCoords}
+                pm25={phase === "done" ? result?.estimated_pm25 : null}
+              />
+
+              {/* Outside the phase-keyed block for the same reason as the chat:
+                  a half-filled report must survive the start of a new scan. */}
+              <CommunityPanel
+                coords={effectiveCoords}
+                onReported={() => setCommunityVersion((v) => v + 1)}
+              />
             </div>
 
             {/* RIGHT: map */}
@@ -355,8 +376,16 @@ function AirQApp() {
                     </div>
                   )}
                 </div>
+                {/* MapView is keyed by theme: swapping the basemap style tears
+                    down every layer mapbox holds, so a clean remount is cheaper
+                    than re-adding them by hand. */}
                 {showMap && effectiveCoords ? (
-                  <MapView coords={effectiveCoords} aqi={result?.aqi_score} />
+                  <MapView
+                    key={theme}
+                    coords={effectiveCoords}
+                    aqi={result?.aqi_score}
+                    communityVersion={communityVersion}
+                  />
                 ) : (
                   <MapSkeleton />
                 )}

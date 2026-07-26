@@ -1,5 +1,5 @@
 from typing import List, Literal, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 class StationData(BaseModel):
     lat: float
@@ -14,6 +14,12 @@ class StationData(BaseModel):
     # gives global coverage, but its distance_km is ~0 by construction and says
     # nothing about measurement proximity. Fusion treats the two differently.
     kind: Literal["sensor", "model"] = "sensor"
+
+    # WAQI's station id, when the reading came from a feed that publishes one.
+    # It is what /stations/detail needs to pull a station's full pollutant
+    # breakdown and forecast, so without it the detail endpoint is unreachable
+    # from the map.
+    uid: Optional[str] = None
 
 class WeatherData(BaseModel):
     temp_c: float
@@ -47,6 +53,32 @@ class TokenResponse(BaseModel):
     token_type: Literal["bearer"] = "bearer"
     expires_in: int  # seconds
     user: UserOut
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+class SaveLocationRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=60)
+    latitude: float = Field(..., ge=-90.0, le=90.0)
+    longitude: float = Field(..., ge=-180.0, le=180.0)
+
+class ShareAnalysisRequest(BaseModel):
+    is_public: bool
+
+class ReportRequest(BaseModel):
+    """A subjective observation of the air, submitted by a user."""
+
+    latitude: float = Field(..., ge=-90.0, le=90.0)
+    longitude: float = Field(..., ge=-180.0, le=180.0)
+    perceived: Literal["good", "moderate", "poor", "severe"]
+
+    # How far the reporter can see. It is the one field here that correlates
+    # with particulate directly, which is why it is worth collecting alongside
+    # the categorical judgement.
+    visibility_km: Optional[float] = Field(None, ge=0.0, le=100.0)
+    symptoms: List[str] = Field(default_factory=list, max_length=8)
+    note: Optional[str] = Field(None, max_length=280)
 
 class FusionResult(BaseModel):
     aqi_score: int

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 
 import { LanguageToggle } from "./LanguageToggle";
+import { ThemeToggle } from "./ThemeToggle";
 import { Cursor, Grain, ParticleField } from "@/components/landing/atmosphere";
 import { SwapAction } from "@/components/landing/magnetic";
 import { MaskLine } from "@/components/landing/type";
@@ -68,14 +69,17 @@ export function AuthScreen() {
         <ParticleField />
         <div
           className="absolute inset-0"
-          style={{ background: "radial-gradient(closest-side, transparent 25%, rgba(0,0,0,0.9) 100%)" }}
+          style={{ background: "radial-gradient(closest-side, transparent 25%, rgb(var(--bg-rgb) / 0.9) 100%)" }}
         />
       </div>
 
       <div className="relative z-10 flex min-h-dvh flex-col">
         <header className="mx-auto flex w-full max-w-7xl items-center justify-between px-5 py-5 sm:px-8">
           <div className="lp-display text-xl tracking-[-0.03em]">{t.brand}</div>
-          <LanguageToggle />
+          <div className="flex items-center gap-3">
+            <ThemeToggle />
+            <LanguageToggle />
+          </div>
         </header>
 
         <div className="flex flex-1 items-center justify-center px-5 pb-20 sm:px-8">

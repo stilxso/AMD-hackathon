@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { LanguageToggle } from "./LanguageToggle";
+import { ThemeToggle } from "./ThemeToggle";
 import { useAuth } from "@/lib/auth";
 import { useI18n } from "@/lib/i18n";
 
@@ -19,15 +20,18 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-3">
+          <ThemeToggle />
           <LanguageToggle />
           {user && (
             <div className="flex items-center gap-3 border-l border-white/10 pl-3">
-              <span
-                className="lp-mono hidden max-w-[10rem] truncate text-white/50 sm:inline"
+              <Link
+                href="/cabinet"
+                data-cursor="grow"
+                className="lp-mono max-w-[10rem] truncate text-white/50 transition-colors hover:text-white"
                 title={user.username}
               >
                 {user.username}
-              </span>
+              </Link>
               <button
                 onClick={logout}
                 title={t.authSignOut}

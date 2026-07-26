@@ -4,6 +4,7 @@ import logging
 from fastapi import APIRouter, Depends, File, UploadFile, Form, HTTPException, Request
 
 from app.api.deps import current_user
+from app.services import store
 from app.services.auth import User
 from app.services.air_quality import fetch_all_stations
 from app.services.weather import WeatherClient
@@ -16,6 +17,47 @@ router = APIRouter()
 # Both are stateless and cheap to hold for the process lifetime.
 fusion_engine = FusionEngine()
 weather_client = WeatherClient(settings.openweather_api_key)
+
+
+async def _record_history(
+    *,
+    user: User,
+    response: dict,
+    latitude: float,
+    longitude: float,
+    image_bytes: bytes,
+    place: str | None,
+) -> int | None:
+    """
+    Persist a finished scan for the user's cabinet.
+
+    History is a side effect of a successful analysis, never a precondition for
+    one: a write failure is logged and the estimate is returned regardless. The
+    thumbnail encode and the insert are both blocking, so they run off the event
+    loop like every other synchronous call in this module.
+    """
+    try:
+        thumbnail = await asyncio.to_thread(store.make_thumbnail, image_bytes)
+        return await asyncio.to_thread(
+            store.save_analysis,
+            user_id=user.id,
+            latitude=latitude,
+            longitude=longitude,
+            aqi=response["aqi_score"],
+            pm25=response["estimated_pm25"],
+            raw_ai_pm25=response.get("raw_ai_pm25"),
+            uncertainty=response.get("pm25_uncertainty"),
+            confidence=response.get("ai_confidence"),
+            sky_score=response.get("sky_score"),
+            status_text=response.get("status_text"),
+            fusion_method=response.get("fusion_method"),
+            stations_used=response.get("stations_used", 0),
+            place=place,
+            thumbnail=thumbnail,
+        )
+    except Exception as exc:
+        logger.warning("Could not record analysis history for %r: %s", user.username, exc)
+        return None
 
 
 @router.post("/analyze")
@@ -137,6 +179,14 @@ async def analyze_image(
             "stations_used": 0,
             "nearby_stations": [],
         }
+        response["analysis_id"] = await _record_history(
+            user=user,
+            response=response,
+            latitude=latitude,
+            longitude=longitude,
+            image_bytes=contents,
+            place=None,
+        )
         return response
 
     response = {
@@ -170,5 +220,14 @@ async def analyze_image(
             "humidity": round(weather.humidity),
             "windSpeed": round(weather.wind_speed, 1),
         }
+
+    response["analysis_id"] = await _record_history(
+        user=user,
+        response=response,
+        latitude=latitude,
+        longitude=longitude,
+        image_bytes=contents,
+        place=weather.place if weather else None,
+    )
 
     return response

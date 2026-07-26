@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, useMotionValue, useScroll, useSpring, type MotionValue } from "framer-motion";
 
+import { useTheme } from "@/lib/theme";
+
 function prefersReducedMotion() {
   return (
     typeof window !== "undefined" &&
@@ -18,6 +20,11 @@ export function ParticleField({ clear }: { clear?: MotionValue<number> }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // The loop reads a ref, so scrolling never re-renders React.
   const clearRef = useRef(0);
+  // Canvas can't read a CSS token, so the theme is mirrored into a ref the
+  // draw loop samples — same reason as above: no re-render per frame.
+  const { theme } = useTheme();
+  const fillRef = useRef("#ffffff");
+  fillRef.current = theme === "light" ? "#0c0c0c" : "#ffffff";
 
   useEffect(() => {
     if (!clear) return;
@@ -95,7 +102,7 @@ export function ParticleField({ clear }: { clear?: MotionValue<number> }) {
         ctx!.globalAlpha = p.a * (1 - clarity * 0.5);
         ctx!.beginPath();
         ctx!.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        ctx!.fillStyle = "#ffffff";
+        ctx!.fillStyle = fillRef.current;
         ctx!.fill();
       }
       ctx!.globalAlpha = 1;
@@ -126,7 +133,9 @@ export function ParticleField({ clear }: { clear?: MotionValue<number> }) {
       window.removeEventListener("resize", resize);
       window.removeEventListener("pointermove", onPointer);
     };
-  }, []);
+    // `theme` is a dependency for the reduced-motion path only: it draws a
+    // single frame, so a colour change has to re-run the effect to be seen.
+  }, [theme]);
 
   return <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" aria-hidden />;
 }
@@ -173,7 +182,7 @@ export function Cursor() {
     >
       {/* Size lives on a child so the spring transform above stays untouched. */}
       <div
-        className="rounded-full bg-white transition-[width,height] duration-300 ease-out"
+        className="lp-cursor-dot rounded-full transition-[width,height] duration-300 ease-out"
         style={{ width: size, height: size, transform: "translate(-50%, -50%)" }}
       />
     </motion.div>

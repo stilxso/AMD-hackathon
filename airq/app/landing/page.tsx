@@ -45,7 +45,7 @@ export default function LandingPage() {
 
 function Nav() {
   return (
-    <header className="fixed inset-x-0 top-0 z-40 flex items-center justify-between px-6 py-5 mix-blend-difference md:px-12">
+    <header className="fixed inset-x-0 top-0 z-40 flex items-center justify-between px-6 py-5 mix-blend-difference lp-blend-diff md:px-12">
       <Link href="/landing" className="lp-display text-lg tracking-[-0.03em]" data-cursor="grow">
         AirQ
       </Link>
@@ -99,7 +99,7 @@ function Hero({ ready }: { ready: boolean }) {
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0"
-        style={{ background: "radial-gradient(closest-side, transparent 40%, rgba(0,0,0,0.75) 100%)" }}
+        style={{ background: "radial-gradient(closest-side, transparent 40%, rgb(var(--bg-rgb) / 0.75) 100%)" }}
       />
 
       <motion.div

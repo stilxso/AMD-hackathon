@@ -13,8 +13,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.api.v1 import analyze, auth, explain, route, stations
+from app.api.v1 import analyze, auth, community, explain, me, route, stations
 from app.services.auth import ensure_demo_user, init_db
+from app.services.store import init_store
 
 logger = logging.getLogger("airq")
 
@@ -28,6 +29,8 @@ async def lifespan(app: FastAPI):
     """
     # ── Startup ──────────────────────────────────────────────────────
     init_db()
+    # The cabinet tables reference users(id), so they are created after it.
+    init_store()
     ensure_demo_user()
 
     logger.info("Loading ML model from %s …", settings.model_abs_path)
@@ -106,6 +109,8 @@ def create_app() -> FastAPI:
     app.include_router(stations.router, prefix="/api/v1")
     app.include_router(explain.router, prefix="/api/v1")
     app.include_router(route.router, prefix="/api/v1")
+    app.include_router(me.router, prefix="/api/v1")
+    app.include_router(community.router, prefix="/api/v1")
 
     return app
 

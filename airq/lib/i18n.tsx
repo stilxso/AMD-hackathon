@@ -53,6 +53,10 @@ export type Dict = {
   errorBody: string;
   tryAgain: string;
   poweredBy: string;
+  themeLight: string;
+  themeDark: string;
+  themeToLight: string;
+  themeToDark: string;
   authSignIn: string;
   authRegister: string;
   authSignInTitle: string;
@@ -98,6 +102,93 @@ export type Dict = {
   routeMin: string;
   routeMonitors: string;
   routeGrid: string;
+  // ── Personal cabinet ──
+  cabinetOpen: string;
+  cabinetTitle: string;
+  cabinetSubtitle: string;
+  cabinetBack: string;
+  cabinetError: string;
+  cabinetRetry: string;
+  cabinetLoading: string;
+  tabOverview: string;
+  tabHistory: string;
+  tabLocations: string;
+  tabReports: string;
+  tabSecurity: string;
+  statScans: string;
+  statAvgAqi: string;
+  statWorst: string;
+  statBest: string;
+  statShared: string;
+  statReports: string;
+  statSaved: string;
+  statLastScan: string;
+  statNone: string;
+  trendTitle: string;
+  trendHint: string;
+  trendEmpty: string;
+  historyTitle: string;
+  historyEmpty: string;
+  historyEmptyHint: string;
+  historyLoadMore: string;
+  historyShowing: string;
+  historyDelete: string;
+  historyDeleteConfirm: string;
+  historyShare: string;
+  historyUnshare: string;
+  historyShared: string;
+  historyPrivate: string;
+  historyShareHint: string;
+  historyNoImage: string;
+  locationsTitle: string;
+  locationsHint: string;
+  locationsEmpty: string;
+  locationName: string;
+  locationNamePlaceholder: string;
+  locationAdd: string;
+  locationDelete: string;
+  locationUseCurrent: string;
+  locationNoCoords: string;
+  reportsTitle: string;
+  reportsEmpty: string;
+  reportDelete: string;
+  securityTitle: string;
+  securityHint: string;
+  securityCurrent: string;
+  securityNew: string;
+  securityConfirm: string;
+  securitySubmit: string;
+  securityChanged: string;
+  securityMismatch: string;
+  // ── Crowdsourcing ──
+  communityTitle: string;
+  communityOpen: string;
+  communityLayer: string;
+  communityNobody: string;
+  communityConsensus: string;
+  communityReportsCount: string;
+  communitySharedCount: string;
+  communityVisibility: string;
+  communityDisclaimer: string;
+  reportTitle: string;
+  reportSubtitle: string;
+  reportPerceived: string;
+  reportVisibility: string;
+  reportVisibilityHint: string;
+  reportSymptoms: string;
+  reportNote: string;
+  reportNotePlaceholder: string;
+  reportSubmit: string;
+  reportSubmitting: string;
+  reportSubmitted: string;
+  reportCancel: string;
+  reportFailed: string;
+  reportNeedsLocation: string;
+  perceivedGood: string;
+  perceivedModerate: string;
+  perceivedPoor: string;
+  perceivedSevere: string;
+  symptoms: string[];
   chatTitle: string;
   chatSubtitle: string;
   chatOpen: string;
@@ -168,6 +259,10 @@ const dictionaries: Record<Lang, Dict> = {
     errorBody: "The AI backend did not respond. Try again in a moment.",
     tryAgain: "Try again",
     poweredBy: "AI-vision · Tech Vision 2026",
+    themeLight: "Light",
+    themeDark: "Dark",
+    themeToLight: "Switch to light theme",
+    themeToDark: "Switch to dark theme",
     authSignIn: "Sign in",
     authRegister: "Register",
     authSignInTitle: "Welcome back",
@@ -213,6 +308,93 @@ const dictionaries: Record<Lang, Dict> = {
     routeMin: "min",
     routeMonitors: "monitors scored this",
     routeGrid: "km model grid",
+    // ── Personal cabinet ──
+    cabinetOpen: "Cabinet",
+    cabinetTitle: "Your cabinet",
+    cabinetSubtitle: "Every scan you have taken, the places you watch, and what you told the community.",
+    cabinetBack: "Back to the scanner",
+    cabinetError: "Could not load your cabinet",
+    cabinetRetry: "Try again",
+    cabinetLoading: "Loading your cabinet…",
+    tabOverview: "Overview",
+    tabHistory: "History",
+    tabLocations: "Places",
+    tabReports: "Reports",
+    tabSecurity: "Security",
+    statScans: "Scans",
+    statAvgAqi: "Average AQI",
+    statWorst: "Worst",
+    statBest: "Best",
+    statShared: "Shared",
+    statReports: "Reports filed",
+    statSaved: "Saved places",
+    statLastScan: "Last scan",
+    statNone: "—",
+    trendTitle: "Your last readings",
+    trendHint: "AQI of your most recent scans, oldest first.",
+    trendEmpty: "Scan the sky once and your trend appears here.",
+    historyTitle: "Scan history",
+    historyEmpty: "No scans yet.",
+    historyEmptyHint: "Every photo you analyse is kept here with its reading.",
+    historyLoadMore: "Load more",
+    historyShowing: "shown of",
+    historyDelete: "Delete",
+    historyDeleteConfirm: "Delete this scan permanently?",
+    historyShare: "Share",
+    historyUnshare: "Unshare",
+    historyShared: "Shared",
+    historyPrivate: "Private",
+    historyShareHint: "Sharing puts this reading, its coordinates and its photo on the community map.",
+    historyNoImage: "no image",
+    locationsTitle: "Saved places",
+    locationsHint: "Pin a place to jump the map straight to it.",
+    locationsEmpty: "No saved places yet.",
+    locationName: "Name",
+    locationNamePlaceholder: "Home, office, school…",
+    locationAdd: "Save this place",
+    locationDelete: "Remove",
+    locationUseCurrent: "Uses your current coordinates",
+    locationNoCoords: "Waiting for a location to save.",
+    reportsTitle: "Your reports",
+    reportsEmpty: "You have not reported the air yet.",
+    reportDelete: "Withdraw",
+    securityTitle: "Password",
+    securityHint: "Changing it does not sign out your other sessions.",
+    securityCurrent: "Current password",
+    securityNew: "New password",
+    securityConfirm: "Repeat new password",
+    securitySubmit: "Change password",
+    securityChanged: "Password changed.",
+    securityMismatch: "The two new passwords do not match.",
+    // ── Crowdsourcing ──
+    communityTitle: "What people report",
+    communityOpen: "Report the air",
+    communityLayer: "Community",
+    communityNobody: "Nobody has reported here in the last 24 hours.",
+    communityConsensus: "Most people call the air",
+    communityReportsCount: "reports nearby",
+    communitySharedCount: "shared scans",
+    communityVisibility: "Reported visibility",
+    communityDisclaimer: "Reports are people's impressions, not measurements. They are shown beside the sensor and model data, never mixed into it.",
+    reportTitle: "How does the air feel?",
+    reportSubtitle: "Your impression, pinned where you are.",
+    reportPerceived: "The air here is",
+    reportVisibility: "How far can you see?",
+    reportVisibilityHint: "km — optional, but it is the part that tracks particulate",
+    reportSymptoms: "Anything you feel?",
+    reportNote: "Note",
+    reportNotePlaceholder: "Smoke from the east, burning smell…",
+    reportSubmit: "Send report",
+    reportSubmitting: "Sending…",
+    reportSubmitted: "Thanks — your report is on the map.",
+    reportCancel: "Cancel",
+    reportFailed: "Could not send your report",
+    reportNeedsLocation: "Waiting for a location to report from.",
+    perceivedGood: "Clean",
+    perceivedModerate: "Passable",
+    perceivedPoor: "Bad",
+    perceivedSevere: "Severe",
+    symptoms: ["Coughing", "Itchy eyes", "Sore throat", "Headache", "Hard to breathe", "Smell of smoke"],
     chatTitle: "Ask the air",
     chatSubtitle: "Why the air here reads the way it does",
     chatOpen: "Ask about this air",
@@ -286,6 +468,10 @@ const dictionaries: Record<Lang, Dict> = {
     errorBody: "AI-бэкенд не ответил. Попробуйте ещё раз.",
     tryAgain: "Повторить",
     poweredBy: "AI-vision · Tech Vision 2026",
+    themeLight: "Светлая",
+    themeDark: "Тёмная",
+    themeToLight: "Переключить на светлую тему",
+    themeToDark: "Переключить на тёмную тему",
     authSignIn: "Вход",
     authRegister: "Регистрация",
     authSignInTitle: "С возвращением",
@@ -331,6 +517,93 @@ const dictionaries: Record<Lang, Dict> = {
     routeMin: "мин",
     routeMonitors: "станций в оценке",
     routeGrid: "км сетка модели",
+    // ── Личный кабинет ──
+    cabinetOpen: "Кабинет",
+    cabinetTitle: "Ваш кабинет",
+    cabinetSubtitle: "Все ваши замеры, отслеживаемые места и то, что вы рассказали сообществу.",
+    cabinetBack: "Назад к сканеру",
+    cabinetError: "Не удалось загрузить кабинет",
+    cabinetRetry: "Повторить",
+    cabinetLoading: "Загружаем кабинет…",
+    tabOverview: "Обзор",
+    tabHistory: "История",
+    tabLocations: "Места",
+    tabReports: "Сообщения",
+    tabSecurity: "Безопасность",
+    statScans: "Замеров",
+    statAvgAqi: "Средний AQI",
+    statWorst: "Худший",
+    statBest: "Лучший",
+    statShared: "Опубликовано",
+    statReports: "Сообщений",
+    statSaved: "Сохранено мест",
+    statLastScan: "Последний замер",
+    statNone: "—",
+    trendTitle: "Ваши последние замеры",
+    trendHint: "AQI последних замеров, от старых к новым.",
+    trendEmpty: "Сделайте первый замер — здесь появится динамика.",
+    historyTitle: "История замеров",
+    historyEmpty: "Замеров пока нет.",
+    historyEmptyHint: "Каждое проанализированное фото сохраняется здесь вместе с результатом.",
+    historyLoadMore: "Показать ещё",
+    historyShowing: "показано из",
+    historyDelete: "Удалить",
+    historyDeleteConfirm: "Удалить этот замер безвозвратно?",
+    historyShare: "Опубликовать",
+    historyUnshare: "Скрыть",
+    historyShared: "Опубликован",
+    historyPrivate: "Приватный",
+    historyShareHint: "Публикация покажет результат, координаты и фото на карте сообщества.",
+    historyNoImage: "без фото",
+    locationsTitle: "Сохранённые места",
+    locationsHint: "Закрепите место, чтобы сразу открывать его на карте.",
+    locationsEmpty: "Сохранённых мест пока нет.",
+    locationName: "Название",
+    locationNamePlaceholder: "Дом, работа, школа…",
+    locationAdd: "Сохранить место",
+    locationDelete: "Удалить",
+    locationUseCurrent: "Используются ваши текущие координаты",
+    locationNoCoords: "Ожидаем координаты для сохранения.",
+    reportsTitle: "Ваши сообщения",
+    reportsEmpty: "Вы ещё не сообщали о воздухе.",
+    reportDelete: "Отозвать",
+    securityTitle: "Пароль",
+    securityHint: "Смена пароля не завершает другие сессии.",
+    securityCurrent: "Текущий пароль",
+    securityNew: "Новый пароль",
+    securityConfirm: "Повторите новый пароль",
+    securitySubmit: "Сменить пароль",
+    securityChanged: "Пароль изменён.",
+    securityMismatch: "Новые пароли не совпадают.",
+    // ── Краудсорсинг ──
+    communityTitle: "Что сообщают люди",
+    communityOpen: "Сообщить о воздухе",
+    communityLayer: "Сообщество",
+    communityNobody: "За последние 24 часа здесь никто не сообщал.",
+    communityConsensus: "Большинство оценивает воздух как",
+    communityReportsCount: "сообщений рядом",
+    communitySharedCount: "опубликованных замеров",
+    communityVisibility: "Видимость по сообщениям",
+    communityDisclaimer: "Сообщения — это впечатления людей, а не измерения. Они показаны рядом с данными датчиков и модели, но не смешиваются с ними.",
+    reportTitle: "Каким кажется воздух?",
+    reportSubtitle: "Ваше впечатление, закреплённое там, где вы находитесь.",
+    reportPerceived: "Воздух здесь",
+    reportVisibility: "Как далеко видно?",
+    reportVisibilityHint: "км — необязательно, но именно это связано с частицами",
+    reportSymptoms: "Что-нибудь чувствуете?",
+    reportNote: "Заметка",
+    reportNotePlaceholder: "Дым с востока, запах гари…",
+    reportSubmit: "Отправить",
+    reportSubmitting: "Отправляем…",
+    reportSubmitted: "Спасибо — ваше сообщение на карте.",
+    reportCancel: "Отмена",
+    reportFailed: "Не удалось отправить сообщение",
+    reportNeedsLocation: "Ожидаем координаты для сообщения.",
+    perceivedGood: "Чистый",
+    perceivedModerate: "Терпимый",
+    perceivedPoor: "Плохой",
+    perceivedSevere: "Тяжёлый",
+    symptoms: ["Кашель", "Резь в глазах", "Боль в горле", "Головная боль", "Трудно дышать", "Запах гари"],
     chatTitle: "Спросите о воздухе",
     chatSubtitle: "Почему воздух здесь именно такой",
     chatOpen: "Спросить об этом воздухе",
@@ -404,6 +677,10 @@ const dictionaries: Record<Lang, Dict> = {
     errorBody: "AI-сервер жауап бермеді. Сәл кейін қайталап көріңіз.",
     tryAgain: "Қайталау",
     poweredBy: "AI-vision · Tech Vision 2026",
+    themeLight: "Ашық",
+    themeDark: "Күңгірт",
+    themeToLight: "Ашық тақырыпқа ауысу",
+    themeToDark: "Күңгірт тақырыпқа ауысу",
     authSignIn: "Кіру",
     authRegister: "Тіркелу",
     authSignInTitle: "Қайта келуіңізбен",
@@ -449,6 +726,93 @@ const dictionaries: Record<Lang, Dict> = {
     routeMin: "мин",
     routeMonitors: "станция бағалауда",
     routeGrid: "км модель торы",
+    // ── Жеке кабинет ──
+    cabinetOpen: "Кабинет",
+    cabinetTitle: "Сіздің кабинетіңіз",
+    cabinetSubtitle: "Барлық өлшемдеріңіз, бақылайтын орындарыңыз және қоғамдастыққа айтқаныңыз.",
+    cabinetBack: "Сканерге оралу",
+    cabinetError: "Кабинетті жүктеу мүмкін болмады",
+    cabinetRetry: "Қайталау",
+    cabinetLoading: "Кабинет жүктелуде…",
+    tabOverview: "Шолу",
+    tabHistory: "Тарих",
+    tabLocations: "Орындар",
+    tabReports: "Хабарламалар",
+    tabSecurity: "Қауіпсіздік",
+    statScans: "Өлшемдер",
+    statAvgAqi: "Орташа AQI",
+    statWorst: "Ең нашар",
+    statBest: "Ең жақсы",
+    statShared: "Жарияланған",
+    statReports: "Хабарламалар",
+    statSaved: "Сақталған орындар",
+    statLastScan: "Соңғы өлшем",
+    statNone: "—",
+    trendTitle: "Соңғы өлшемдеріңіз",
+    trendHint: "Соңғы өлшемдердің AQI мәні, ескісінен жаңасына қарай.",
+    trendEmpty: "Аспанды бір рет сканерлеңіз — динамика осында пайда болады.",
+    historyTitle: "Өлшемдер тарихы",
+    historyEmpty: "Әзірге өлшем жоқ.",
+    historyEmptyHint: "Талданған әрбір фото нәтижесімен бірге осында сақталады.",
+    historyLoadMore: "Тағы көрсету",
+    historyShowing: "көрсетілді, барлығы",
+    historyDelete: "Жою",
+    historyDeleteConfirm: "Бұл өлшемді біржола жою керек пе?",
+    historyShare: "Жариялау",
+    historyUnshare: "Жасыру",
+    historyShared: "Жарияланған",
+    historyPrivate: "Жеке",
+    historyShareHint: "Жариялау нәтижені, координаттарды және фотоны қоғамдастық картасына шығарады.",
+    historyNoImage: "фотосыз",
+    locationsTitle: "Сақталған орындар",
+    locationsHint: "Орынды бекітсеңіз, картаны бірден соған ашасыз.",
+    locationsEmpty: "Сақталған орын жоқ.",
+    locationName: "Атауы",
+    locationNamePlaceholder: "Үй, жұмыс, мектеп…",
+    locationAdd: "Орынды сақтау",
+    locationDelete: "Жою",
+    locationUseCurrent: "Ағымдағы координаттарыңыз қолданылады",
+    locationNoCoords: "Сақтау үшін координаттар күтілуде.",
+    reportsTitle: "Сіздің хабарламаларыңыз",
+    reportsEmpty: "Сіз әлі ауа туралы хабарлаған жоқсыз.",
+    reportDelete: "Кері қайтару",
+    securityTitle: "Құпия сөз",
+    securityHint: "Оны ауыстыру басқа сеанстарды аяқтамайды.",
+    securityCurrent: "Ағымдағы құпия сөз",
+    securityNew: "Жаңа құпия сөз",
+    securityConfirm: "Жаңа құпия сөзді қайталаңыз",
+    securitySubmit: "Құпия сөзді ауыстыру",
+    securityChanged: "Құпия сөз ауыстырылды.",
+    securityMismatch: "Жаңа құпия сөздер сәйкес келмейді.",
+    // ── Краудсорсинг ──
+    communityTitle: "Адамдар не хабарлайды",
+    communityOpen: "Ауа туралы хабарлау",
+    communityLayer: "Қоғамдастық",
+    communityNobody: "Соңғы 24 сағатта мұнда ешкім хабарламаған.",
+    communityConsensus: "Көпшілік ауаны былай бағалайды:",
+    communityReportsCount: "жақын маңдағы хабарлама",
+    communitySharedCount: "жарияланған өлшем",
+    communityVisibility: "Хабарланған көрінім",
+    communityDisclaimer: "Хабарламалар — адамдардың әсері, өлшем емес. Олар датчик пен модель деректерінің қасында көрсетіледі, оларға араласпайды.",
+    reportTitle: "Ауа қалай сезіледі?",
+    reportSubtitle: "Сіз тұрған жерге бекітілген әсеріңіз.",
+    reportPerceived: "Мұндағы ауа",
+    reportVisibility: "Қаншалықты алысты көресіз?",
+    reportVisibilityHint: "км — міндетті емес, бірақ дәл осы бөлшектермен байланысты",
+    reportSymptoms: "Бірдеңе сезесіз бе?",
+    reportNote: "Ескертпе",
+    reportNotePlaceholder: "Шығыстан түтін, күйік иісі…",
+    reportSubmit: "Жіберу",
+    reportSubmitting: "Жіберілуде…",
+    reportSubmitted: "Рақмет — хабарламаңыз картада.",
+    reportCancel: "Болдырмау",
+    reportFailed: "Хабарламаны жіберу мүмкін болмады",
+    reportNeedsLocation: "Хабарлау үшін координаттар күтілуде.",
+    perceivedGood: "Таза",
+    perceivedModerate: "Шыдамды",
+    perceivedPoor: "Нашар",
+    perceivedSevere: "Ауыр",
+    symptoms: ["Жөтел", "Көз ашуы", "Тамақ ауыруы", "Бас ауыруы", "Тыныс алу қиын", "Күйік иісі"],
     chatTitle: "Ауа туралы сұраңыз",
     chatSubtitle: "Мұндағы ауа неліктен осындай",
     chatOpen: "Осы ауа туралы сұрау",

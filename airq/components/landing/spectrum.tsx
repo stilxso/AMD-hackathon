@@ -39,14 +39,14 @@ export function Spectrum() {
                 aria-hidden
                 className="absolute inset-0"
                 style={{
-                  background: `linear-gradient(160deg, rgba(255,255,255,${b.tone * 0.16}), rgba(255,255,255,0.01))`,
+                  background: `linear-gradient(160deg, rgb(var(--fg-rgb) / ${b.tone * 0.16}), rgb(var(--fg-rgb) / 0.01))`,
                 }}
               />
               <div className="relative flex items-start justify-between">
                 <span className="lp-mono text-white/45">{String(i + 1).padStart(2, "0")}</span>
                 <span
                   className="h-3 w-3 rounded-full"
-                  style={{ backgroundColor: `rgba(255,255,255,${Math.max(b.tone, 0.12)})` }}
+                  style={{ backgroundColor: `rgb(var(--fg-rgb) / ${Math.max(b.tone, 0.12)})` }}
                   aria-hidden
                 />
               </div>
@@ -55,7 +55,7 @@ export function Spectrum() {
                 <div className="lp-mono text-white/45">{b.range}</div>
                 <h3
                   className="lp-display mt-3 text-[clamp(1.8rem,3.4vw,3rem)]"
-                  style={{ color: `rgba(255,255,255,${0.35 + b.tone * 0.65})` }}
+                  style={{ color: `rgb(var(--fg-rgb) / ${0.35 + b.tone * 0.65})` }}
                 >
                   {b.name}
                 </h3>
@@ -68,7 +68,7 @@ export function Spectrum() {
                   <div
                     key={k}
                     className="flex-1"
-                    style={{ backgroundColor: `rgba(255,255,255,${b.tone * (k / 27) * 0.9 + 0.03})` }}
+                    style={{ backgroundColor: `rgb(var(--fg-rgb) / ${b.tone * (k / 27) * 0.9 + 0.03})` }}
                   />
                 ))}
               </div>

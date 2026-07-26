@@ -178,6 +178,31 @@ def authenticate(username: str, password: str) -> User:
     return _row_to_user(row)
 
 
+def change_password(user_id: int, current_password: str, new_password: str) -> None:
+    """
+    Replace a user's password after checking the current one.
+
+    Re-verifying rather than trusting the bearer token means a stolen token
+    alone cannot lock the owner out of their own account.
+    """
+    if len(new_password) < PASSWORD_MIN:
+        raise AuthError(f"Password must be at least {PASSWORD_MIN} characters")
+
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT password_hash FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        if row is None:
+            raise AuthError("Account no longer exists")
+        if not verify_password(current_password, row["password_hash"]):
+            raise AuthError("Current password is incorrect")
+
+        conn.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (hash_password(new_password), user_id),
+        )
+
+
 def ensure_demo_user() -> None:
     """
     Seed the demo account described in the README, if it is missing.
