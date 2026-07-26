@@ -108,7 +108,7 @@ account before deploying anywhere public.
 * **Frontend:** Next.js, React, TailwindCSS, Mapbox GL JS
 * **Backend:** FastAPI, Python, Pydantic, HTTPX
 * **Machine Learning:** PyTorch, Torchvision (EfficientNet-B0)
-* **External APIs:** WAQI (World Air Quality Index), OpenAQ, OpenWeatherMap, Mapbox, Google Gemini (LLM)
+* **External APIs:** WAQI (World Air Quality Index), OpenAQ, IQAir AirVisual, OpenWeatherMap, Mapbox, Google Gemini (LLM)
 
 ---
 

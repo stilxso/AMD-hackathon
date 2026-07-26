@@ -1,10 +1,10 @@
 import asyncio
 import math
 import logging
-import time
 import httpx
 from dataclasses import dataclass, field, replace
-from typing import Awaitable, Callable, Dict, List, Literal, Optional, Tuple
+from typing import Awaitable, Callable, List, Literal, Optional
+from .cache import TTLCache
 from .schemas import StationData
 from .fusion import aqi_to_pm25
 from app.config import settings
@@ -73,6 +73,27 @@ def _classify_waqi_body(name: str, data: dict) -> SourceResult:
 
     logger.warning("WAQI %s returned status %s: %s", name, data.get("status"), detail)
     return SourceResult(name=name, status="error", detail=detail)
+
+
+def _classify_iqair_body(name: str, data: dict) -> SourceResult:
+    """
+    IQAir puts a machine-readable reason in the body of a failed lookup, and
+    those reasons need splitting up: a dead key must not read as an unmonitored
+    region, and "no station near this point" must not read as a fault.
+    """
+    message = str((data.get("data") or {}).get("message") or data.get("status"))[:120]
+    low = message.lower()
+
+    if any(t in low for t in ("key", "unauthorized", "forbidden", "permission")):
+        logger.error("IQAir rejected the key: %s", message)
+        return SourceResult(name=name, status="unauthorized", detail=message)
+
+    if "not_found" in low or "no_nearest_station" in low:
+        logger.info("%s has no station for this point: %s", name, message)
+        return SourceResult(name=name, status="empty", detail="no IQAir station near this point")
+
+    logger.warning("IQAir returned %s: %s", data.get("status"), message)
+    return SourceResult(name=name, status="error", detail=message)
 
 
 def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -466,46 +487,111 @@ class OpenWeatherAirClient:
         except Exception as e:
             return _classify_http_error(name_, e)
 
-# Every request fans out to five upstreams, and panning the map issues a lot of
+class IQAirClient:
+    """
+    IQAir AirVisual's nearest-city feed: the AQI its monitor network reports for
+    the closest covered city.
+
+    It is a city-level composite rather than a reading at a point, so like
+    WAQI's bounds feed it publishes an index and the concentration is
+    reconstructed via aqi_to_pm25. The free tier allows 5 calls a minute, which
+    is why this source is cached on a coarser cell than the others.
+    """
+
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.base_url = "https://api.airvisual.com/v2/nearest_city"
+
+    async def get_nearest_city(self, lat: float, lng: float) -> SourceResult:
+        name_ = "iqair"
+        if not self.api_key:
+            return SourceResult(name=name_, status="disabled", detail="IQAIR_API_KEY not set")
+
+        params = {"lat": lat, "lon": lng, "key": self.api_key}
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(self.base_url, params=params)
+
+                # A refusal comes back as a non-2xx *with* a JSON reason, and
+                # that reason is the only thing distinguishing a spent quota
+                # from a bad key. Parse before falling back to the status code.
+                try:
+                    data = resp.json()
+                except ValueError:
+                    resp.raise_for_status()
+                    return SourceResult(name=name_, status="error", detail="non-JSON response")
+
+                if data.get("status") != "success":
+                    return _classify_iqair_body(name_, data)
+
+                d = data.get("data", {})
+                pollution = (d.get("current") or {}).get("pollution") or {}
+                try:
+                    aqi_val = float(pollution["aqius"])
+                except (KeyError, TypeError, ValueError):
+                    return SourceResult(name=name_, status="empty", detail="no US AQI in response")
+
+                # GeoJSON order: [longitude, latitude].
+                coords = (d.get("location") or {}).get("coordinates") or []
+                if len(coords) != 2:
+                    return SourceResult(name=name_, status="empty", detail="no station coordinates")
+                st_lng, st_lat = float(coords[0]), float(coords[1])
+
+                city = ", ".join(p for p in (d.get("city"), d.get("country")) if p) or "Unknown City"
+
+                return SourceResult(name=name_, status="ok", stations=[StationData(
+                    lat=st_lat,
+                    lng=st_lng,
+                    pm25=aqi_to_pm25(aqi_val),
+                    distance_km=haversine(lat, lng, st_lat, st_lng),
+                    name=f"IQAir {city}",
+                    source="iqair",
+                )])
+        except Exception as e:
+            return _classify_http_error(name_, e)
+
+# Every request fans out to six upstreams, and panning the map issues a lot of
 # requests over nearly the same point. Open-Meteo's free tier rate-limits that
 # burst with a 429. Since CAMS republishes hourly on an ~11 km grid and the
 # station feeds update at most hourly too, coordinates are rounded to ~1 km and
 # results reused for a few minutes.
 _CACHE_TTL_S = 300
-_CACHE_MAX = 512
-_cache: Dict[str, Tuple[float, SourceResult]] = {}
+_cache: TTLCache[SourceResult] = TTLCache("aq", ttl_s=_CACHE_TTL_S, max_entries=512)
 
 
-def _cache_key(name: str, lat: float, lng: float, radius_km: int) -> str:
-    return f"{name}:{lat:.2f}:{lng:.2f}:{radius_km}"
+def _cache_key(name: str, lat: float, lng: float, radius_km: int, precision: int = 2) -> str:
+    return f"{name}:{lat:.{precision}f}:{lng:.{precision}f}:{radius_km}"
 
 
 async def _cached(key: str, fetch: Callable[[], Awaitable[SourceResult]]) -> SourceResult:
-    """Reuse a recent result, and fall back to a stale one when fetching fails."""
-    now = time.monotonic()
-    hit = _cache.get(key)
-    if hit and now - hit[0] < _CACHE_TTL_S:
-        return hit[1]
+    """
+    Reuse a recent result, and fall back to a stale one when fetching fails.
 
+    Requests arriving for the same key while a fetch is running wait on that
+    fetch instead of starting their own, so two users on one city cost one call.
+    """
+    hit = _cache.fresh(key)
+    if hit is not None:
+        return hit
+    return await _cache.single_flight(key, lambda: _fetch_and_store(key, fetch))
+
+
+async def _fetch_and_store(key: str, fetch: Callable[[], Awaitable[SourceResult]]) -> SourceResult:
     result = await fetch()
 
     if result.status in ("ok", "empty"):
-        if len(_cache) >= _CACHE_MAX:
-            # Stale entries are still useful as fallbacks, so only the ones too
-            # old to be worth serving are dropped.
-            cutoff = now - 3600
-            for k in [k for k, (ts, _) in _cache.items() if ts < cutoff]:
-                del _cache[k]
-        _cache[key] = (now, result)
+        _cache.store(key, result)
         return result
 
     # The upstream is rate-limiting us or is down. A reading from minutes ago
     # beats a hole in the map and a "degraded" banner for what is a transient
     # 429, so serve the stale copy and say so in the detail line.
-    if hit:
-        age_min = int((now - hit[0]) / 60)
+    stale = _cache.stale(key)
+    if stale:
+        value, age_s = stale
+        age_min = int(age_s / 60)
         logger.warning("%s failed (%s), serving cached result from %d min ago", key, result.detail, age_min)
-        return replace(hit[1], detail=f"cached {age_min} min ago — live fetch: {result.detail}")
+        return replace(value, detail=f"cached {age_min} min ago — live fetch: {result.detail}")
 
     return result
 
@@ -521,14 +607,18 @@ async def fetch_air_quality(lat: float, lng: float, radius_km: int = 50) -> AirQ
     openaq = OpenAQClient(settings.openaq_api_key)
     open_meteo = OpenMeteoClient()
     openweather_air = OpenWeatherAirClient(settings.openweather_api_key)
+    iqair = IQAirClient(settings.iqair_api_key)
 
-    names = ["waqi-bounds", "waqi-nearest", "openaq", "open-meteo", "openweather"]
+    names = ["waqi-bounds", "waqi-nearest", "openaq", "open-meteo", "openweather", "iqair"]
     results = await asyncio.gather(
         _cached(_cache_key("waqi-bounds", lat, lng, radius_km), lambda: waqi.get_in_bounds(lat, lng, radius_km)),
         _cached(_cache_key("waqi-nearest", lat, lng, 0), lambda: waqi.get_nearest(lat, lng)),
         _cached(_cache_key("openaq", lat, lng, radius_km), lambda: openaq.get_nearby(lat, lng, radius_km)),
         _cached(_cache_key("open-meteo", lat, lng, 0), lambda: open_meteo.get_estimate(lat, lng)),
         _cached(_cache_key("openweather", lat, lng, 0), lambda: openweather_air.get_estimate(lat, lng)),
+        # ~11 km cell: the answer is a whole city and the free tier allows only
+        # 5 calls a minute, so a 1 km key would spend the budget on one pan.
+        _cached(_cache_key("iqair", lat, lng, 0, precision=1), lambda: iqair.get_nearest_city(lat, lng)),
         return_exceptions=True,
     )
 

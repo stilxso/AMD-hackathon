@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     openaq_api_key: str = ""
     openweather_api_key: str = ""
 
+    # IQAir AirVisual nearest-city feed. Empty just drops that source from the
+    # fan-out — it reports "disabled" and the others still answer.
+    iqair_api_key: str = ""
+
     # Mapbox Directions powers /route. A public (pk.) token is enough — the same
     # one the frontend map uses. Empty makes /route return 503; nothing else is
     # affected.
